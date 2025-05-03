@@ -1,6 +1,6 @@
 <html>
   <head>
-    <title>Dr Fluffy Rabbit </title>
+    <title>The Fluffy Rabbit </title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
@@ -19,7 +19,6 @@
           src="./assets/video.mp4"
           autoplay
           loop
-          muted
           playsinline
           crossorigin="anonymous"
         ></video>
@@ -42,16 +41,19 @@
     <script>
       const video = document.querySelector("#video");
       const target = document.querySelector("#target");
-
+    
+      // Wait for user interaction before allowing sound
+      window.addEventListener("click", () => {
+        video.muted = false;
+        video.play();
+      });
+    
       target.addEventListener("targetFound", () => {
-        if (video.paused) {
-          video.play().catch((e) => {
-            console.warn("Autoplay failed:", e);
-          });
+        if (!video.muted && video.paused) {
+          video.play();
         }
       });
-
-      // Optional: pause when lost
+    
       target.addEventListener("targetLost", () => {
         if (!video.paused) {
           video.pause();
