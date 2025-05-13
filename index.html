@@ -1,13 +1,19 @@
 <html>
   <head>
-    <title>Fluffy Rabbit </title>
+    <title>Updated Fluffy Rabbit</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   </head>
   <body>
     <a-scene
-      mindar-image="imageTargetSrc: ./mindar/targets.mind;"
+      mindar-image="imageTargetSrc: ./mindar/targets.mind;
+                    filterMinCF: 0.001;
+                    filterBeta: 0.5;
+                    missTolerance: 5;
+                    warmupTolerance: 3;
+                    maxTrack: 1;
+                    scaleMode: fit"
       color-space="sRGB"
       renderer="colorManagement: true, physicallyCorrectLights"
       vr-mode-ui="enabled: false"
@@ -21,6 +27,7 @@
           loop
           playsinline
           crossorigin="anonymous"
+          preload="auto"
         ></video>
       </a-assets>
 
@@ -32,8 +39,9 @@
           src="#video"
           position="0 0 0"
           width="1"
-          height="0.552"
+          height="0.5625"
           rotation="0 0 0"
+          material="shader: flat"
         ></a-plane>
       </a-entity>
     </a-scene>
@@ -41,19 +49,19 @@
     <script>
       const video = document.querySelector("#video");
       const target = document.querySelector("#target");
-    
+
       // Wait for user interaction before allowing sound
       window.addEventListener("click", () => {
         video.muted = false;
         video.play();
       });
-    
+
       target.addEventListener("targetFound", () => {
         if (!video.muted && video.paused) {
           video.play();
         }
       });
-    
+
       target.addEventListener("targetLost", () => {
         if (!video.paused) {
           video.pause();
