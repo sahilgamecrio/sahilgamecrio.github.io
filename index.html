@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+  <title>AR.js + A-Frame — Video on Marker</title>
+
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+  <!-- AR.js via raw.githack (less likely to be blocked) -->
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    body { margin: 0; overflow: hidden; background: #000; }
+    .hint { position: fixed; left: 8px; top: 8px; color: white; font-family: Arial, sans-serif; z-index: 9999; background: rgba(0,0,0,0.5); padding:6px 8px; border-radius:6px; }
+    #manual-play { position: fixed; left:50%; top:50%; transform: translate(-50%,-50%); z-index:99999; padding:12px 18px; border-radius:8px; border:none; background:#fff; color:#000; font-weight:600; display:none; }
+  </style>
+</head>
+<body>
+  <div class="hint">Point your camera at the printed marker. Allow camera permission. (Use poster/print/second screen)</div>
+
+  <!-- Video: muted so mobile allows autoplay. Put a poster image if you want a still while loading -->
+  <video id="ar-video" playsinline webkit-playsinline muted preload="auto" loop crossorigin="anonymous" style="display:none;" poster="poster.jpg">
+    <source src="video.mp4" type="video/mp4">
+  </video>
+
+  <button id="manual-play">Tap to start video</button>
+
+  <!-- A-Frame scene with AR.js -->
+  <a-scene embedded vr-mode-ui="enabled: false" renderer="antialias: true; logarithmicDepthBuffer: true;"
+           arjs="sourceType: webcam; debugUIEnabled: false;">
+    <!-- Use your .patt file here; for quick test you can use patt.hiro URL -->
+    <a-marker type="pattern" url="./mytarget.patt" id="marker">
+      <!-- Adjust width/height to match your video's aspect ratio (w/h = 16/9 => 1 / 0.5625 ) -->
+      <a-plane id="video-plane" position="0 0 0" rotation="-90 0 0" width="1" height="0.5625"
+               material="shader: flat; src: #ar-video; transparent: true;"></a-plane>
+    </a-marker>
+
+    <a-entity camera></a-entity>
+  </a-scene>
+
+  <script>
+  (function(){
+    const video = document.getElementById('ar-video');
+    const marker = document.getElementById('marker');
+    const manualBtn = document.getElementById('manual-play');
+
+    // Friendly autoplay attributes
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute('playsinline','');
+    video.setAttribute('webkit-playsinline','');
+
+    // Preload the video
+    video.load();
+    video.pause();
+
+    // Helpers
+    const log = (...a) => console.log('[AR]', ...a);
+    const warn = (...a) => console.warn('[AR]', ...a);
+
+    // show manual play button if autoplay blocked
+    function showManualPlay(){
+      manualBtn.style.display = 'block';
+    }
+    manualBtn.addEventListener('click', async () => {
+      try {
+        await video.play();
+        manualBtn.style.display = 'none';
+        log('Manual play started');
+      } catch(e){
+        warn('Manual play failed', e);
+      }
+    });
+
+    // Safety: wait until A-Frame scene loaded (to ensure marker element exists)
+    const scene = document.querySelector('a-scene');
+    scene.addEventListener('loaded', () => {
+      log('A-Frame scene loaded');
+
+      if (!marker){
+        warn('Marker element not found. Check id/url of <a-marker>.');
+        return;
+      }
+
+      // debug: check pattern and video availability
+      const pattURL = marker.getAttribute('url');
+      if (pattURL) fetch(pattURL, {method:'HEAD'}).then(r => {
+        if (!r.ok) console.error('Pattern HEAD failed', r.status, pattURL);
+        else log('Pattern reachable:', pattURL);
+      }).catch(e => console.warn('Pattern fetch error', e));
+
+      const srcEl = video.querySelector('source');
+      if (srcEl) fetch(srcEl.getAttribute('src'), {method:'HEAD'}).then(r=> {
+        if (!r.ok) console.error('Video HEAD failed', r.status, srcEl.getAttribute('src'));
+        else log('Video reachable:', srcEl.getAttribute('src'));
+      }).catch(e => console.warn('Video fetch error', e));
+
+      // Marker events: play/pause
+      marker.addEventListener('markerFound', () => {
+        log('markerFound');
+        // If video isn't allowed to autoplay, play() will reject
+        video.play().then(()=> log('video.play succeeded')).catch(err => {
+          warn('video.play rejected', err);
+          showManualPlay();
+        });
+      });
+
+      marker.addEventListener('markerLost', () => {
+        log('markerLost');
+        try { video.pause(); } catch(e) { warn('video.pause failed', e); }
+      });
+
+      // Resume if tab visibility changes
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          // only play when marker visible
+          if (marker.object3D && marker.object3D.visible) {
+            video.play().catch(()=>{});
+          }
+        } else {
+          video.pause();
+        }
+      });
+    });
+
+    // Quick camera permission probe (will prompt user)
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({video:true})
+        .then(s => { s.getTracks().forEach(t=>t.stop()); log('Camera permission OK'); })
+        .catch(err => {
+          console.error('Camera permission denied or not available', err);
+          // no further action here — user must allow camera
+        });
+    } else {
+      console.error('getUserMedia not supported in this browser');
+    }
+  })();
+  </script>
+</body>
+</html>
