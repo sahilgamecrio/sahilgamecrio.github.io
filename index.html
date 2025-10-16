@@ -3,119 +3,183 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>MindAR — Video over Image (calibrated)</title>
+  <title>MindAR — Camera Start Debug</title>
 
-  <!-- MindAR + A-Frame -->
+  <!-- A-Frame + MindAR -->
   <script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.5/dist/mindar-image-aframe.prod.js"></script>
 
   <style>
-    body{margin:0;overflow:hidden;font-family:system-ui,Roboto}
-    #ui{position:fixed;left:10px;top:10px;z-index:9999;background:rgba(0,0,0,0.6);color:#fff;padding:10px;border-radius:8px}
-    #ui input{width:70px}
-    #status{margin-top:6px;color:#ffd}
-    button{margin-top:6px}
+    body{margin:0; font-family:system-ui,Roboto,Segoe UI; background:#000; color:#fff; overflow:hidden;}
+    #panel { position: absolute; z-index: 9999; left: 10px; top: 10px; background: rgba(0,0,0,0.6); padding: 12px; border-radius: 8px; max-width: 340px; }
+    #panel button { margin-top: 8px; padding: 8px 10px; border-radius: 6px; border: none; cursor: pointer; }
+    #status { margin-top: 8px; color: #ffd; font-size: 0.95rem; white-space: pre-wrap; }
+    #console { margin-top: 8px; font-family: monospace; font-size: 0.8rem; color: #ddd; max-height: 180px; overflow:auto; background: rgba(255,255,255,0.03); padding: 8px; border-radius: 6px; }
   </style>
 </head>
 <body>
-  <div id="ui">
-    Printed width (cm): <input id="printWidth" type="number" value="20" step="0.1">
-    <button id="apply">Apply</button>
-    <div><button id="tap">Tap to start (if needed)</button></div>
-    <div id="status">Ready — point camera at target</div>
+  <div id="panel">
+    <div><strong>MindAR Camera Debug</strong></div>
+    <div style="margin-top:8px;">
+      <button id="startBtn">Tap to start camera & AR</button>
+      <button id="tryPerm" style="margin-left:6px;">Check camera permission</button>
+    </div>
+    <div id="status">Status: waiting for user tap</div>
+    <div id="console"></div>
   </div>
 
-  <!-- Video kept renderable (tiny & transparent) -->
-  <video id="video" src="video.mp4" preload="auto" playsinline webkit-playsinline crossorigin="anonymous" loop muted style="position:absolute;left:0;top:0;width:2px;height:2px;opacity:0.001"></video>
+  <!-- keep video tiny & renderable -->
+  <video id="video" src="video.mp4" preload="auto" playsinline webkit-playsinline loop muted crossorigin="anonymous" style="position:absolute;left:0;top:0;width:2px;height:2px;opacity:0.001"></video>
 
-  <!-- MindAR A-Frame scene -->
+  <!-- MindAR a-frame scene (autoStart: false — we start manually) -->
   <a-scene mindar-image="imageTargetSrc: ./targets.mind; autoStart: false;" embedded color-space="sRGB">
     <a-assets>
-      <!-- ensure A-Frame knows about the video -->
       <video id="af-video" src="video.mp4" loop crossorigin="anonymous" playsinline webkit-playsinline></video>
     </a-assets>
 
-    <!-- anchor 0 is the first target in targets.mind -->
     <a-entity mindar-image-target="targetIndex: 0">
-      <!-- plane is centered on the target; width/height will be set by JS to match printed size -->
-      <a-plane id="video-plane" position="0 0 0" rotation="-90 0 0" material="shader: flat; src: #af-video; side: double" visible="false"></a-plane>
+      <a-plane id="video-plane" rotation="-90 0 0" position="0 0 0" material="shader: flat; src: #af-video; side: double" visible="false"></a-plane>
     </a-entity>
 
     <a-entity camera></a-entity>
   </a-scene>
 
-  <script>
-    (function(){
-      const printInput = document.getElementById('printWidth');
-      const applyBtn = document.getElementById('apply');
-      const status = document.getElementById('status');
-      const tap = document.getElementById('tap');
-      const video = document.getElementById('af-video'); // A-Frame asset video
-      const plane = document.getElementById('video-plane');
-      const mindarComponent = document.querySelector('a-scene').components['mindar-image'];
+<script>
+(function(){
+  const statusEl = id => document.getElementById('status').textContent = 'Status: ' + id;
+  const logEl = document.getElementById('console');
+  function log(...args){ console.log('[DBG]', ...args); logEl.innerText = (new Date().toLocaleTimeString() + ' — ' + args.join(' ')) + '\n' + logEl.innerText; }
 
-      // Autoplay friendliness: keep muted; provide tap fallback
-      document.getElementById('tap').addEventListener('click', ()=> {
-        video.play().catch(()=>{});
-        document.body.focus();
-      });
+  const startBtn = document.getElementById('startBtn');
+  const tryPermBtn = document.getElementById('tryPerm');
+  const afVideo = document.getElementById('af-video');
+  const plane = document.getElementById('video-plane');
+  const afScene = document.querySelector('a-scene');
 
-      // Auto-size plane when metadata available
-      video.addEventListener('loadedmetadata', () => {
-        status.textContent = 'Video metadata loaded. Click Apply after setting printed width (cm).';
-      });
+  // safety checks
+  function checkSecureContext(){
+    if (location.protocol === 'https:' || location.hostname === 'localhost') {
+      log('Secure context OK:', location.protocol + '//' + location.hostname);
+      return true;
+    } else {
+      log('Insecure context — must serve via HTTPS or localhost for camera access');
+      statusEl('Page not secure — use HTTPS or localhost');
+      return false;
+    }
+  }
 
-      // Apply printed width (cm -> meters). Use video aspect ratio to set height.
-      function applyPrintedWidth(cm) {
-        const meters = Number(cm) / 100;
-        const aspect = (video.videoWidth && video.videoHeight) ? (video.videoWidth / video.videoHeight) : (16/9);
-        const height = meters / aspect;
-        plane.setAttribute('width', meters);
-        plane.setAttribute('height', height);
-        status.textContent = `Plane set to ${meters.toFixed(3)} m × ${height.toFixed(3)} m`;
+  // quick camera permission check using Permissions API if available
+  async function checkCameraPermission(){
+    if (!navigator.permissions) {
+      log('Permissions API not available in this browser');
+      statusEl('Permissions API not supported — press "Tap to start" and allow camera');
+      return;
+    }
+    try {
+      const p = await navigator.permissions.query({ name: 'camera' });
+      log('Camera permission state:', p.state);
+      statusEl('Camera permission: ' + p.state);
+      p.onchange = () => { log('Permission changed to', p.state); statusEl('Camera permission: ' + p.state); };
+    } catch(e) {
+      log('Permissions.query camera failed:', e);
+      statusEl('Permission query failed — press "Tap to start" and allow camera');
+    }
+  }
+
+  // test getUserMedia directly (lightweight) to see if camera permission will be granted
+  async function testGetUserMedia(){
+    try {
+      log('Requesting getUserMedia (video)...');
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      log('getUserMedia succeeded — camera stream active');
+      statusEl('Camera acquired OK');
+      // stop all tracks immediately (we just tested)
+      stream.getTracks().forEach(t => t.stop());
+      return true;
+    } catch (err) {
+      log('getUserMedia failed:', err.name || err.message || err);
+      statusEl('Camera start failed: ' + (err.name || err.message));
+      return false;
+    }
+  }
+
+  // start MindAR flow: call scene.systems['mindar-image'].start()
+  async function startMindAR() {
+    if (!checkSecureContext()) return;
+
+    // ensure targets file exists: quick fetch head
+    try {
+      const resp = await fetch('./targets.mind', { method: 'HEAD' });
+      if (!resp.ok) {
+        log('targets.mind not found: HTTP ' + resp.status);
+        statusEl('targets.mind missing or wrong path (HTTP ' + resp.status + ')');
+        return;
+      } else {
+        log('targets.mind reachable OK');
       }
+    } catch (e) {
+      log('Error fetching targets.mind:', e);
+      statusEl('Error reaching targets.mind — check path & HTTPS');
+      return;
+    }
 
-      applyBtn.addEventListener('click', ()=> {
-        const cm = parseFloat(printInput.value);
-        if (!cm || cm <= 0) { status.textContent = 'Enter valid printed width (cm)'; return; }
-        applyPrintedWidth(cm);
-      });
-
-      // Start MindAR when user taps permission dialogs (autoStart false -> we start manually)
-      const scene = document.querySelector('a-scene');
-      scene.addEventListener('renderstart', ()=> status.textContent='Camera started, point at target');
-
-      // Start MindAR on first user gesture or immediately if allowed
-      function startMindAR() {
-        if (scene.systems['mindar-image'].isStarted) return;
-        scene.systems['mindar-image'].start().then(()=> {
-          status.textContent = 'MindAR started — looking for target';
-        }).catch(e => { console.error(e); status.textContent = 'MindAR start failed: ' + e; });
+    // Try requesting camera directly so that permission is prompted on user tap
+    let canUseCamera = false;
+    try {
+      canUseCamera = await testGetUserMedia();
+      if (!canUseCamera) {
+        log('getUserMedia reported failure (user denied or device blocks)');
+        // continue to attempt to start MindAR anyway — MindAR will also request camera
       }
+    } catch (e) {
+      log('getUserMedia test threw', e);
+    }
 
-      // Start on a user tap (helps with autoplay/policy)
-      document.body.addEventListener('click', startMindAR, { once: true });
+    statusEl('Starting MindAR — you may see a permission prompt (allow camera)');
+    try {
+      // MindAR start
+      await afScene.systems['mindar-image'].start();
+      log('MindAR started successfully');
+      statusEl('MindAR started — point camera at target');
 
-      // Play/pause video on target found/lost
+      // Once MindAR started, bind events
       const anchor = document.querySelector('[mindar-image-target]');
       anchor.addEventListener('targetFound', async () => {
+        log('targetFound event');
         plane.setAttribute('visible','true');
-        try { await video.play(); } catch(e) { console.warn('autoplay blocked', e); }
-        status.textContent = 'Target found — playing';
+        try { await afVideo.play(); log('af-video.play() success'); } catch(e) { log('af-video.play() failed', e); }
       });
       anchor.addEventListener('targetLost', () => {
+        log('targetLost event');
         plane.setAttribute('visible','false');
-        try { video.pause(); video.currentTime = 0; } catch(e) {}
-        status.textContent = 'Target lost';
+        try { afVideo.pause(); afVideo.currentTime = 0; } catch(e) {}
       });
+    } catch (e) {
+      log('MindAR start failed:', e);
+      statusEl('MindAR start error — see console');
+    }
+  }
 
-      // helpful: start MindAR automatically if user previously tapped
-      // and auto-size plane if user set printed width before metadata loaded
-      video.addEventListener('canplay', ()=> {
-        const cm = parseFloat(printInput.value);
-        if (cm > 0) applyPrintedWidth(cm);
-      });
-    })();
-  </script>
+  // UI wiring
+  startBtn.addEventListener('click', async () => {
+    log('Start button clicked — attempting to start camera & MindAR');
+    await checkCameraPermission();
+    await startMindAR();
+  });
+
+  tryPermBtn.addEventListener('click', async () => {
+    log('Checking camera permission with Permissions API (if available)');
+    await checkCameraPermission();
+    // also try a quick getUserMedia to show prompt
+    await testGetUserMedia();
+  });
+
+  // helpful info on load
+  log('UI ready. Click "Tap to start camera & AR" to begin.');
+  if (!checkSecureContext()) {
+    log('Serve via HTTPS or use localhost to enable camera.');
+  }
+})();
+</script>
 </body>
 </html>
