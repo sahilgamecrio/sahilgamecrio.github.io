@@ -1,38 +1,54 @@
-<script src="https://cdn.jsdelivr.net/gh/aframevr/aframe@1c2407b26c61958baa93967b5412487cd94b290b/dist/aframe-master.min.js"></script>
-<script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+  <title>AR.js NFT</title>
 
-<style>
-  .arjs-loader {
-    height: 100%;
-    width: 100%;
-    position: absolute;
-    top: 0;
-    left: 0;
-    background-color: rgba(0, 0, 0, 0.8);
-    z-index: 9999;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-  }
+  <!-- A-Frame and AR.js (same versions you used) -->
+  <script src="https://cdn.jsdelivr.net/gh/aframevr/aframe@1c2407b26c61958baa93967b5412487cd94b290b/dist/aframe-master.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
 
-  .arjs-loader div {
-    text-align: center;
-    font-size: 1.25em;
-    color: white;
-  }
-</style>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    .arjs-loader {
+      height: 100%;
+      width: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      background-color: rgba(0, 0, 0, 0.8);
+      z-index: 9999;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      pointer-events: none;
+    }
 
-<body style="margin : 0px; overflow: hidden;">
-  <!-- minimal loader shown until image descriptors are loaded -->
-  <div class="arjs-loader">
+    .arjs-loader div {
+      text-align: center;
+      font-size: 1.25em;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <!-- Minimal loader shown until the video is ready -->
+  <div class="arjs-loader" id="loader">
     <div>Loading, please wait...</div>
   </div>
+
+  <!-- Hidden HTML video element (relative path `video.mp4`) -->
+  <!-- muted & playsinline so mobile/desktop allow autoplay -->
+  <video id="ar-video" src="video.mp4" preload="auto" loop muted playsinline webkit-playsinline crossorigin="anonymous" style="display:none"></video>
+
   <a-scene
     vr-mode-ui="enabled: false;"
     renderer="logarithmicDepthBuffer: true;"
     embedded
-    arjs="trackingMethod: best; sourceType: webcam;debugUIEnabled: false;"
+    arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false;"
   >
+    <!-- NFT target: keep the same URL you used for the trex example or change to your own descriptor -->
     <a-nft
       type="nft"
       url="https://raw.githack.com/AR-js-org/AR.js/master/aframe/examples/image-tracking/nft/trex/trex-image/trex"
@@ -40,14 +56,110 @@
       smoothCount="10"
       smoothTolerance=".01"
       smoothThreshold="5"
+      id="my-nft"
     >
-      <a-entity
-        gltf-model="https://raw.githack.com/AR-js-org/AR.js/master/aframe/examples/image-tracking/nft/trex/scene.gltf"
-        scale="5 5 5"
-        position="50 150 0"
-      >
-      </a-entity>
+      <!-- The plane that will show the video.
+           Adjust width/height to match your target image aspect ratio.
+           rotation often needs -90 0 0 for correct orientation on some setups. -->
+      <a-plane id="video-plane"
+               position="0 0 0"
+               rotation="-90 0 0"
+               width="1.6"
+               height="0.9"
+               material="shader: flat; src: #ar-video;"
+               visible="false">
+      </a-plane>
     </a-nft>
+
     <a-entity camera></a-entity>
   </a-scene>
+
+  <script>
+    (function () {
+      const video = document.getElementById('ar-video');
+      const plane = document.getElementById('video-plane');
+      const nft = document.getElementById('my-nft');
+      const loader = document.getElementById('loader');
+
+      // When video is able to play, remove loader (we keep plane hidden until marker found)
+      video.addEventListener('loadeddata', () => {
+        // give a tiny delay so everything is initialized
+        setTimeout(() => {
+          loader.style.display = 'none';
+          console.log('Video loaded, ready to play on marker found.');
+        }, 300);
+      });
+
+      // Safety: if video fails to load, remove loader after timeout so user isn't stuck
+      setTimeout(() => {
+        if (loader.style.display !== 'none') {
+          loader.style.display = 'none';
+          console.warn('Loader hidden after timeout (video may not be loaded).');
+        }
+      }, 10000);
+
+      // Helper to play video (returns a promise but we ignore it for older browsers)
+      function tryPlay() {
+        video.play().catch((err) => {
+          // autoplay might be blocked — keep it muted (it is muted), but still log
+          console.warn('Video play prevented:', err);
+        });
+      }
+
+      // Event listeners on the NFT element:
+      // AR.js / a-nft should fire 'markerFound' and 'markerLost' events.
+      nft.addEventListener('markerFound', () => {
+        console.log('markerFound');
+        plane.setAttribute('visible', 'true');
+        tryPlay();
+      });
+
+      nft.addEventListener('markerLost', () => {
+        console.log('markerLost');
+        plane.setAttribute('visible', 'false');
+        // pause to save CPU/battery
+        video.pause();
+        video.currentTime = 0; // optional: restart from beginning next time
+      });
+
+      // Some builds may use slightly different event names; add fallbacks
+      // For backwards compatibility: listen for `markerFound` on child entities too
+      document.addEventListener('markerFound', () => {
+        // if your runtime bubbles this event, the plane will become visible
+        plane.setAttribute('visible', 'true');
+        tryPlay();
+      });
+
+      document.addEventListener('markerLost', () => {
+        plane.setAttribute('visible', 'false');
+        video.pause();
+        video.currentTime = 0;
+      });
+
+      // Optional: if you want the plane to match the video's aspect ratio automatically:
+      video.addEventListener('loadedmetadata', () => {
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+        if (w && h) {
+          const aspect = w / h;
+          // set plane width = 1.6 (arbitrary), compute height from aspect:
+          const width = 1.6;
+          const height = width / aspect;
+          plane.setAttribute('width', width);
+          plane.setAttribute('height', height);
+          console.log('Plane adjusted to video aspect:', aspect, width, height);
+        }
+      });
+
+      // If you need the user to tap to start on some mobile browsers:
+      // uncomment the following small helper that requests a user interaction to play
+      /*
+      document.body.addEventListener('touchstart', function once() {
+        tryPlay();
+        document.body.removeEventListener('touchstart', once);
+      }, { once: true });
+      */
+    })();
+  </script>
 </body>
+</html>
