@@ -2,164 +2,130 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
-  <title>AR.js NFT</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>AR NFT — Video on Image (fixed)</title>
 
-  <!-- A-Frame and AR.js (same versions you used) -->
   <script src="https://cdn.jsdelivr.net/gh/aframevr/aframe@1c2407b26c61958baa93967b5412487cd94b290b/dist/aframe-master.min.js"></script>
   <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
 
   <style>
-    body { margin: 0; overflow: hidden; }
-    .arjs-loader {
-      height: 100%;
-      width: 100%;
-      position: absolute;
-      top: 0;
-      left: 0;
-      background-color: rgba(0, 0, 0, 0.8);
-      z-index: 9999;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      pointer-events: none;
-    }
-
-    .arjs-loader div {
-      text-align: center;
-      font-size: 1.25em;
-      color: white;
-    }
+    body { margin:0; overflow:hidden; font-family:system-ui,Segoe UI,Roboto; }
+    #ui { position:absolute; z-index:9999; left:12px; top:12px; background:rgba(0,0,0,0.6); color:#fff; padding:10px; border-radius:8px; }
+    #tap { display:none; margin-top:8px; background:#fff;color:#000;padding:8px 10px;border-radius:6px;border:none; cursor:pointer;}
+    #log { font-size:0.85rem; margin-top:6px; color:#ffd; max-width:340px; white-space:pre-wrap; }
   </style>
 </head>
 <body>
-  <!-- Minimal loader shown until the video is ready -->
-  <div class="arjs-loader" id="loader">
-    <div>Loading, please wait...</div>
+  <div id="ui">
+    <div id="status">Ready — point camera at target</div>
+    <button id="tap">Tap to Start Video</button>
+    <div id="log"></div>
   </div>
 
-  <!-- Hidden HTML video element (relative path `video.mp4`) -->
-  <!-- muted & playsinline so mobile/desktop allow autoplay -->
-  <video id="ar-video" src="video.mp4" preload="auto" loop muted playsinline webkit-playsinline crossorigin="anonymous" style="display:none"></video>
+  <!-- IMPORTANT: do NOT use display:none — keep it in DOM and renderable (tiny/transparent) -->
+  <video id="ar-video"
+         src="./video.mp4"
+         preload="auto"
+         loop
+         muted
+         playsinline
+         webkit-playsinline
+         crossorigin="anonymous"
+         style="position:absolute; left:0; top:0; width:1px; height:1px; opacity:0;"
+  ></video>
 
-  <a-scene
-    vr-mode-ui="enabled: false;"
-    renderer="logarithmicDepthBuffer: true;"
-    embedded
-    arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false;"
-  >
-    <!-- NFT target: keep the same URL you used for the trex example or change to your own descriptor -->
-    <a-nft
-      type="nft"
-      url="https://raw.githack.com/AR-js-org/AR.js/master/aframe/examples/image-tracking/nft/trex/trex-image/trex"
-      smooth="true"
-      smoothCount="10"
-      smoothTolerance=".01"
-      smoothThreshold="5"
-      id="my-nft"
-    >
-      <!-- The plane that will show the video.
-           Adjust width/height to match your target image aspect ratio.
-           rotation often needs -90 0 0 for correct orientation on some setups. -->
-      <a-plane id="video-plane"
-               position="0 0 0"
-               rotation="-90 0 0"
-               width="1.6"
-               height="0.9"
-               material="shader: flat; src: #ar-video;"
-               visible="false">
-      </a-plane>
+  <a-scene vr-mode-ui="enabled:false" embedded renderer="logarithmicDepthBuffer:true"
+           arjs="trackingMethod:best; sourceType:webcam; debugUIEnabled:false;">
+    <a-nft id="my-nft" type="nft" url="https://raw.githack.com/AR-js-org/AR.js/master/aframe/examples/image-tracking/nft/trex/trex-image/trex" smooth="true">
+      <a-plane id="video-plane" rotation="-90 0 0" width="1.6" height="0.9" material="shader: flat; src: #ar-video;" visible="false"></a-plane>
     </a-nft>
-
     <a-entity camera></a-entity>
   </a-scene>
 
   <script>
-    (function () {
-      const video = document.getElementById('ar-video');
-      const plane = document.getElementById('video-plane');
-      const nft = document.getElementById('my-nft');
-      const loader = document.getElementById('loader');
+  (function(){
+    const status = id => document.getElementById('status').textContent = id;
+    const logEl = document.getElementById('log');
+    const tapBtn = document.getElementById('tap');
+    const video = document.getElementById('ar-video');
+    const plane = document.getElementById('video-plane');
+    const nft = document.getElementById('my-nft');
 
-      // When video is able to play, remove loader (we keep plane hidden until marker found)
-      video.addEventListener('loadeddata', () => {
-        // give a tiny delay so everything is initialized
-        setTimeout(() => {
-          loader.style.display = 'none';
-          console.log('Video loaded, ready to play on marker found.');
-        }, 300);
-      });
+    function dbg(...args){
+      console.log('[AR-DBG]', ...args);
+      logEl.textContent = (logEl.textContent + '\n' + args.join(' ')).slice(-2000);
+    }
 
-      // Safety: if video fails to load, remove loader after timeout so user isn't stuck
-      setTimeout(() => {
-        if (loader.style.display !== 'none') {
-          loader.style.display = 'none';
-          console.warn('Loader hidden after timeout (video may not be loaded).');
-        }
-      }, 10000);
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    try { video.load(); } catch(e) { dbg('video.load() failed', e); }
 
-      // Helper to play video (returns a promise but we ignore it for older browsers)
-      function tryPlay() {
-        video.play().catch((err) => {
-          // autoplay might be blocked — keep it muted (it is muted), but still log
-          console.warn('Video play prevented:', err);
-        });
+    video.addEventListener('loadedmetadata', () => {
+      dbg('loadedmetadata', video.videoWidth, video.videoHeight);
+      if (video.videoWidth && video.videoHeight) {
+        const aspect = video.videoWidth / video.videoHeight;
+        const width = 1.6;
+        plane.setAttribute('width', width);
+        plane.setAttribute('height', width / aspect);
+        dbg('plane sized to', (width / aspect).toFixed(3));
       }
+    });
 
-      // Event listeners on the NFT element:
-      // AR.js / a-nft should fire 'markerFound' and 'markerLost' events.
-      nft.addEventListener('markerFound', () => {
-        console.log('markerFound');
-        plane.setAttribute('visible', 'true');
-        tryPlay();
-      });
+    video.addEventListener('canplay', () => dbg('canplay fired — video can render a frame'));
 
-      nft.addEventListener('markerLost', () => {
-        console.log('markerLost');
-        plane.setAttribute('visible', 'false');
-        // pause to save CPU/battery
-        video.pause();
-        video.currentTime = 0; // optional: restart from beginning next time
-      });
+    video.addEventListener('error', (ev) => {
+      dbg('video error event', ev);
+      status('Video load error — check console/network');
+    });
 
-      // Some builds may use slightly different event names; add fallbacks
-      // For backwards compatibility: listen for `markerFound` on child entities too
-      document.addEventListener('markerFound', () => {
-        // if your runtime bubbles this event, the plane will become visible
-        plane.setAttribute('visible', 'true');
-        tryPlay();
-      });
+    async function tryPlay(){
+      try {
+        const p = video.play();
+        if (p !== undefined) await p;
+        dbg('video.play() resolved — playing');
+        return true;
+      } catch (err) {
+        dbg('video.play() rejected:', err);
+        return false;
+      }
+    }
 
-      document.addEventListener('markerLost', () => {
-        plane.setAttribute('visible', 'false');
-        video.pause();
-        video.currentTime = 0;
-      });
+    nft.addEventListener('markerFound', async () => {
+      dbg('markerFound — showing plane and trying to play');
+      plane.setAttribute('visible','true');
+      status('Marker found — playing video...');
+      const ok = await tryPlay();
+      if (!ok) {
+        dbg('Autoplay blocked — showing tap button');
+        tapBtn.style.display = 'inline-block';
+        status('Tap to start video (autoplay blocked)');
+      } else {
+        tapBtn.style.display = 'none';
+      }
+    });
 
-      // Optional: if you want the plane to match the video's aspect ratio automatically:
-      video.addEventListener('loadedmetadata', () => {
-        const w = video.videoWidth;
-        const h = video.videoHeight;
-        if (w && h) {
-          const aspect = w / h;
-          // set plane width = 1.6 (arbitrary), compute height from aspect:
-          const width = 1.6;
-          const height = width / aspect;
-          plane.setAttribute('width', width);
-          plane.setAttribute('height', height);
-          console.log('Plane adjusted to video aspect:', aspect, width, height);
-        }
-      });
+    nft.addEventListener('markerLost', () => {
+      dbg('markerLost — hiding plane & pause');
+      plane.setAttribute('visible','false');
+      video.pause();
+      video.currentTime = 0;
+      status('Marker lost');
+    });
 
-      // If you need the user to tap to start on some mobile browsers:
-      // uncomment the following small helper that requests a user interaction to play
-      /*
-      document.body.addEventListener('touchstart', function once() {
-        tryPlay();
-        document.body.removeEventListener('touchstart', once);
-      }, { once: true });
-      */
-    })();
+    // fallback global events (some versions bubble marker events)
+    document.addEventListener('markerFound', () => { plane.setAttribute('visible','true'); tryPlay(); });
+    document.addEventListener('markerLost', () => { plane.setAttribute('visible','false'); video.pause(); video.currentTime = 0; });
+
+    // user gesture fallback
+    tapBtn.addEventListener('click', async () => {
+      dbg('tap button clicked — trying play');
+      const ok = await tryPlay();
+      if (ok) { tapBtn.style.display = 'none'; status('Playing'); }
+    });
+    document.body.addEventListener('click', () => {/* one click helps many browsers */}, { once:true });
+
+    dbg('script initialized — video.src=', video.src);
+  })();
   </script>
 </body>
 </html>
