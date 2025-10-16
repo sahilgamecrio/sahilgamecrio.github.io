@@ -3,125 +3,72 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
-  <title>Sahil AR MARKER</title>
-
+  <title>sahil Test</title>
   <style>
     body { margin:0; background:#000; color:#fff; font-family:system-ui, Arial; }
     .toolbar { position:fixed; left:12px; top:12px; z-index:99999; display:flex; gap:8px; }
     .btn { background:#0b84ff; color:#fff; border:none; padding:10px 12px; border-radius:8px; cursor:pointer; font-weight:600; }
-    .ghost { background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.06); padding:8px 10px; border-radius:8px; }
+    .ghost { background:rgba(255,255,255,0.06); color:#fff; border:1px solid rgba(255,255,255,0.06); padding:8px 10px; border-radius:8px; }
     .hint { position:fixed; left:12px; bottom:12px; z-index:99999; background:rgba(0,0,0,0.6); padding:8px 10px; border-radius:8px; }
     #manual-play { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:999999; padding:14px 18px; font-size:16px; border-radius:10px; display:none; }
-    #log { position:fixed; right:12px; top:12px; width:320px; max-height:60vh; overflow:auto; z-index:99999; background:rgba(0,0,0,0.6); padding:8px; border-radius:8px; font-size:12px; }
+    #log { position:fixed; right:12px; top:12px; width:340px; max-height:60vh; overflow:auto; z-index:99999; background:rgba(0,0,0,0.6); padding:8px; border-radius:8px; font-size:12px; }
   </style>
 </head>
 <body>
   <div class="toolbar">
-    <button id="start-btn" class="btn">Start AR (click)</button>
+    <button id="start-btn" class="btn">Start AR</button>
     <button id="open-full" class="ghost" style="display:none">Open full page</button>
-    <button id="test-hiro" class="ghost">Test Hiro</button>
+    <button id="use-my-marker" class="ghost">Use my marker (.patt)</button>
+    <button id="use-hiro" class="ghost">Use Hiro marker</button>
   </div>
 
   <div id="log" aria-hidden="true"></div>
-  <div class="hint">Tip: print or display the Hiro marker. If camera doesn't start, run on localhost or HTTPS.</div>
+  <div class="hint">Tip: print/display the Hiro marker. If camera doesn't start, run on localhost or HTTPS.</div>
 
-  <!-- Hidden video (muted for autoplay) -->
+  <!-- Hidden video (muted for autoplay). Replace 'video.mp4' with your file. -->
   <video id="ar-video" playsinline webkit-playsinline muted loop preload="auto" crossorigin="anonymous" style="display:none" poster="poster.jpg">
-    <!-- Replace with your video file name; keep it in same folder as index.html when testing -->
     <source src="video.mp4" type="video/mp4">
   </video>
 
   <button id="manual-play">Tap to start video/audio</button>
 
-  <!-- A-Frame + AR.js placeholders: loaded dynamically by script below -->
+  <!-- Local A-Frame + AR.js usage: A-Frame is loaded from CDN, AR.js is local file aframe-ar.js -->
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+  <script src="./aframe-ar.js"></script>
+
+  <!-- Scene root will be injected by the script below -->
   <div id="scene-root"></div>
 
 <script>
-/* =================================================================================
-   Defensive loader + AR scene builder
-   - Loads A-Frame + AR.js (with fallbacks)
-   - Builds minimal scene using Hiro marker
-   - Handles camera permission via Start AR button (proactive getUserMedia)
-   - Manual video play fallback
-   ================================================================================= */
+/* Full single-file AR.js + A-Frame scene builder (local aframe-ar.js required)
+   Place this index.html + aframe-ar.js + video.mp4 + (optional) mytarget.patt in same folder.
+   Serve from http://localhost:PORT or HTTPS (GitHub Pages). */
 
 (function () {
-  const L = document.getElementById('log');
-  function log(...a){ console.log('[ARX]', ...a); appendLog(a.join(' ')); }
-  function warn(...a){ console.warn('[ARX]', ...a); appendLog('[WARN] ' + a.join(' ')); }
-  function err(...a){ console.error('[ARX]', ...a); appendLog('[ERR] ' + a.join(' ')); }
+  const logEl = document.getElementById('log');
   function appendLog(msg){
     const p = document.createElement('div');
     p.textContent = (new Date()).toLocaleTimeString() + ' — ' + msg;
-    L.prepend(p);
+    logEl.prepend(p);
   }
+  function log(...a){ console.log('[AR]', ...a); appendLog(a.join(' ')); }
+  function warn(...a){ console.warn('[AR]', ...a); appendLog('[WARN] ' + a.join(' ')); }
+  function error(...a){ console.error('[AR]', ...a); appendLog('[ERR] ' + a.join(' ')); }
 
-  // config: external script sources (tries in order)
-  const AFRAME_SRC = 'https://aframe.io/releases/1.4.0/aframe.min.js';
-  const ARJS_SRCS = [
-    'https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js',
-    'https://cdn.jsdelivr.net/npm/ar-js@3.4.0/aframe/build/aframe-ar.js'
-    // If both fail, you can download aframe-ar.js locally and add './aframe-ar.js' here.
-  ];
-
-  // DOM refs
   const startBtn = document.getElementById('start-btn');
   const openFullBtn = document.getElementById('open-full');
   const manualPlayBtn = document.getElementById('manual-play');
-  const testHiroBtn = document.getElementById('test-hiro');
+  const useMyMarkerBtn = document.getElementById('use-my-marker');
+  const useHiroBtn = document.getElementById('use-hiro');
   const videoEl = document.getElementById('ar-video');
 
-  // ensure video attributes
+  // ensure video attributes friendly to autoplay
   videoEl.muted = true;
   videoEl.setAttribute('playsinline','');
   videoEl.setAttribute('webkit-playsinline','');
 
-  // helper to inject script with Promise
-  function loadScript(src, async=true){
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = src;
-      if (async) s.async = true;
-      s.onload = () => { log('Loaded', src); resolve(src); };
-      s.onerror = (e) => { warn('Failed to load', src); reject(e); };
-      document.head.appendChild(s);
-    });
-  }
-
-  // sequentially load A-Frame then AR.js (with fallbacks)
-  async function ensureLibraries(){
-    try {
-      if (typeof AFRAME === 'undefined') {
-        await loadScript(AFRAME_SRC, false); // A-Frame should be non-async for safety
-      } else log('A-Frame already present');
-    } catch(e){ err('Failed to load A-Frame', e); throw e; }
-
-    // try AR.js sources sequentially
-    let arLoaded = false;
-    for (const src of ARJS_SRCS){
-      try {
-        await loadScript(src, true);
-        // small delay to let script execute
-        await new Promise(r => setTimeout(r, 200));
-        // check presence of AR globals — permissive check
-        if (window.AR || window.THREEx || AFRAME.components['arjs']) {
-          arLoaded = true;
-          log('AR.js seems present after', src);
-          break;
-        } else {
-          warn('AR.js not detected after loading', src);
-        }
-      } catch(e){ warn('AR.js load error for', src, e); }
-    }
-    if (!arLoaded) {
-      warn('AR.js failed to load from configured CDNs. If this persists, download aframe-ar.js and add a local fallback.');
-    }
-    return arLoaded;
-  }
-
-  // Build the A-Frame scene string and append
-  function buildScene(useHiro=true){
-    // If user wants to use custom patt, change the url below to './mytarget.patt'
+  // helper: build scene HTML and insert into #scene-root
+  function buildScene(useHiro) {
     const markerUrl = useHiro ? 'https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/data/patt.hiro' : './mytarget.patt';
     const sceneHTML = `
       <a-scene embedded vr-mode-ui="enabled: false" renderer="antialias: true; logarithmicDepthBuffer: true;"
@@ -129,140 +76,181 @@
         <a-marker id="marker" type="pattern" url="${markerUrl}">
           <a-plane id="video-plane" position="0 0 0" rotation="-90 0 0" width="1" height="0.5625"
                    material="shader: flat; src: #ar-video; transparent: true;"></a-plane>
-          <!-- fallback visual object so you can test marker detection visually -->
-          <a-box position="0 0.5 0" depth="0.2" height="0.2" width="0.2" color="#FF5252" visible="false" id="test-box"></a-box>
+          <a-box id="debug-box" position="0 0.25 0" depth="0.2" height="0.2" width="0.2" color="#FF5252" visible="false"></a-box>
         </a-marker>
         <a-entity camera></a-entity>
       </a-scene>
     `;
     document.getElementById('scene-root').innerHTML = sceneHTML;
+    appendLog('Scene inserted (marker URL: ' + markerUrl + ')');
+    wireSceneHandlers();
   }
 
-  // After scene exists, wire up event handlers
-  function wireSceneHandlers(){
+  // wire marker events and checks
+  function wireSceneHandlers() {
     const scene = document.querySelector('a-scene');
-    if (!scene) { err('a-scene not found to wire handlers'); return; }
+    if (!scene) { error('A-Frame scene not present'); return; }
 
-    scene.addEventListener('loaded', () => {
+    scene.addEventListener('loaded', async () => {
       log('A-Frame scene loaded (event)');
+      // sanity: check AR.js presence
+      if (!window.AR && !AFRAME.components['arjs']) {
+        warn('AR.js library not detected. If marker wont track, ensure aframe-ar.js is present locally (./aframe-ar.js).');
+      } else log('AR.js appears present');
 
       const marker = document.getElementById('marker');
-      const plane = document.getElementById('video-plane');
+      const debugBox = document.getElementById('debug-box');
 
-      if (!marker) { err('Marker element missing'); return; }
+      if (!marker) { error('marker not found in DOM'); return; }
 
-      // show a visible cube when marker found so you can debug even without video
-      const testBox = document.getElementById('test-box');
-
-      marker.addEventListener('markerFound', () => {
-        log('EVENT markerFound');
-        if (testBox) testBox.setAttribute('visible','true');
-        // try to play video (muted - should allow autoplay)
-        videoEl.play().then(()=> {
-          log('video.play succeeded on markerFound');
-        }).catch(e => {
-          warn('video.play rejected on markerFound:', e);
-          manualPlayBtn.style.display = 'block';
-        });
-      });
-
-      marker.addEventListener('markerLost', () => {
-        log('EVENT markerLost');
-        if (testBox) testBox.setAttribute('visible','false');
-        try { videoEl.pause(); } catch(e) { warn('video.pause failed', e); }
-      });
-
-      // quick network HEAD checks for visibility
+      // HEAD checks for marker file and video file (helpful for 404s)
       (async () => {
         const patt = marker.getAttribute('url');
         if (patt) {
           try {
-            const r = await fetch(patt, { method: 'HEAD' });
+            const r = await fetch(patt, { method:'HEAD' });
             log('Pattern HEAD', patt, r.status);
-          } catch(e){ warn('Pattern HEAD error', patt, e); }
+          } catch(e){ warn('Pattern HEAD failed', patt, e); }
         }
         const src = videoEl.querySelector('source')?.getAttribute('src');
         if (src) {
           try {
-            const r2 = await fetch(src, { method: 'HEAD' });
+            const r2 = await fetch(src, { method:'HEAD' });
             log('Video HEAD', src, r2.status);
-          } catch(e){ warn('Video HEAD error', src, e); }
+          } catch(e){ warn('Video HEAD failed', src, e); }
         }
       })();
 
-    });
+      // debounce timers to avoid flicker
+      let foundTimer = null;
+      let lostTimer = null;
+      const FOUND_DELAY_MS = 120, LOST_DELAY_MS = 160;
+
+      marker.addEventListener('markerFound', () => {
+        log('EVENT markerFound');
+        if (debugBox) debugBox.setAttribute('visible','true');
+        clearTimeout(lostTimer);
+        foundTimer = setTimeout(() => {
+          // check object3D visibility safely
+          const vis = marker.object3D && typeof marker.object3D.visible !== 'undefined' ? marker.object3D.visible : true;
+          if (vis) {
+            videoEl.play().then(()=> log('video.play succeeded')).catch(e => {
+              warn('video.play rejected:', e);
+              manualPlayBtn.style.display = 'block';
+            });
+          }
+        }, FOUND_DELAY_MS);
+      });
+
+      marker.addEventListener('markerLost', () => {
+        log('EVENT markerLost');
+        if (debugBox) debugBox.setAttribute('visible','false');
+        clearTimeout(foundTimer);
+        lostTimer = setTimeout(()=> {
+          try { videoEl.pause(); log('video paused'); } catch(e){ warn('video.pause failed', e); }
+        }, LOST_DELAY_MS);
+      });
+
+      // visibilitychange handler
+      document.addEventListener('visibilitychange', () => {
+        log('visibilitychange hidden?', document.hidden);
+        if (!document.hidden && marker.object3D && marker.object3D.visible) {
+          videoEl.play().catch(()=>{});
+        } else {
+          try { videoEl.pause(); } catch(e){}
+        }
+      });
+
+      // smoothing (optional) — small visual lerp to reduce jitter
+      const plane = document.getElementById('video-plane');
+      if (plane) {
+        AFRAME.registerComponent('smooth-follow', {
+          init: function(){ this.curPos = new THREE.Vector3(); this.targetPos = new THREE.Vector3(); this.s = 0.18; },
+          tick: function() {
+            if (!marker.object3D) return;
+            marker.object3D.getWorldPosition(this.targetPos);
+            this.curPos.lerp(this.targetPos, this.s);
+            plane.object3D.position.copy(this.curPos);
+          }
+        });
+        plane.setAttribute('smooth-follow','');
+      }
+
+    }); // scene loaded end
   }
 
-  // Proactive camera permission prompt: request camera in response to user click
-  async function askCameraPermission(){
+  // prompt camera permission (user gesture required)
+  async function askCameraPermission() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      err('getUserMedia not supported on this browser');
+      error('getUserMedia not supported in this browser');
       return false;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      // stop immediately (we just wanted permission)
+      const stream = await navigator.mediaDevices.getUserMedia({ video:true });
       stream.getTracks().forEach(t => t.stop());
-      log('Camera permission granted (probe)');
+      log('Camera permission probe succeeded');
       return true;
-    } catch(e){
-      err('Camera permission denied or error:', e);
+    } catch(e) {
+      error('Camera permission probe failed:', e);
       return false;
     }
   }
 
-  // Initialize: ensure libs, build scene, wire handlers
-  async function init(useHiro=true){
-    log('Initializing AR scene; loading libraries...');
-    await ensureLibraries();
-    log('Building scene (marker:', useHiro ? 'Hiro' : 'local .patt', ')');
-    buildScene(useHiro);
-    wireSceneHandlers();
-  }
-
-  // Start flow when user clicks Start AR: ask permission, then init scene
-  startBtn.addEventListener('click', async () => {
-    startBtn.disabled = true;
-    appendLog('User pressed Start AR');
-    const ok = await askCameraPermission();
-    if (!ok) {
-      warn('sahil Camera permission not granted — cannot start AR.');
-      startBtn.disabled = false;
-      return;
-    }
-    // init scene with Hiro by default (you can change later with Test Hiro button)
-    await init(true);
-    startBtn.style.display = 'none';
-  });
-
-  // Manual open full page if inside iframe
+  // detect iframe and show open-full button if so
   try {
     if (window.self !== window.top) {
       openFullBtn.style.display = 'inline-block';
       openFullBtn.onclick = ()=> window.open(window.location.href.split('?')[0]+'?fullscreen=1','_blank');
+      appendLog('Page is inside an iframe; use "Open full page" if camera blocked.');
     }
   } catch(e){ /* ignore cross-origin */ }
 
-  // Manual play for audio/video if autoplay blocked
+  // start button flow
+  startBtn.addEventListener('click', async () => {
+    startBtn.disabled = true;
+    appendLog('Start AR pressed — requesting camera permission...');
+    const ok = await askCameraPermission();
+    if (!ok) {
+      warn('Camera permission required. Try refreshing or opening in a new tab (Open full page).');
+      startBtn.disabled = false;
+      return;
+    }
+    // default to Hiro marker on first start
+    buildScene(true);
+    startBtn.style.display = 'none';
+  });
+
+  // manual play fallback
   manualPlayBtn.addEventListener('click', async () => {
     try {
       await videoEl.play();
       manualPlayBtn.style.display = 'none';
       log('Manual play success');
-    } catch(e){ err('Manual play error', e); }
+    } catch(e) {
+      error('Manual play error', e);
+    }
   });
 
-  // Test Hiro button: builds scene (and shows which marker used)
-  testHiroBtn.addEventListener('click', async () => {
-    // ask camera first if not allowed
+  // buttons to switch markers on-the-fly
+  useMyMarkerBtn.addEventListener('click', async () => {
+    appendLog('Switching to local mytarget.patt (make sure it exists).');
+    // ensure camera permission before building
     const ok = await askCameraPermission();
-    if (!ok) { warn('sahil camera permission required'); return; }
-    await init(true);
+    if (!ok) { warn('camera permission needed'); return; }
+    buildScene(false);
+    startBtn.style.display = 'none';
+  });
+  useHiroBtn.addEventListener('click', async () => {
+    appendLog('Switching to Hiro marker (online patt.hiro).');
+    const ok = await askCameraPermission();
+    if (!ok) return;
+    buildScene(true);
     startBtn.style.display = 'none';
   });
 
-  // Provide quick console hint
-  appendLog(' sahil Ready. Click "Start AR (click)" to begin (must run on localhost or HTTPS).');
+  // initial hint
+  appendLog('Ready. Click "Start AR". Serve from localhost or HTTPS. Place aframe-ar.js & video.mp4 beside this file.');
+
 })();
 </script>
 </body>
