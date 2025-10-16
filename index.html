@@ -1,101 +1,16 @@
-<!doctype html>
+
 <html>
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>MindAR Stable Start</title>
-
-<script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.5/dist/mindar-image-aframe.prod.js"></script>
-
-<style>
-body{margin:0;background:#000;color:#fff;font-family:system-ui,Roboto}
-#ui{position:fixed;top:10px;left:10px;z-index:9999;background:rgba(0,0,0,0.6);padding:10px 12px;border-radius:8px;max-width:320px}
-button{padding:8px 10px;border:none;border-radius:6px;margin-top:6px;cursor:pointer}
-#log{margin-top:6px;font-size:0.85rem;color:#ffd;white-space:pre-wrap}
-</style>
-</head>
-<body>
-<div id="ui">
-  <div><strong>MindAR stable start</strong></div>
-  <button id="startBtn">Start AR</button>
-  <div id="log">Waiting…</div>
-</div>
-
-<video id="video" src="video.mp4" loop playsinline webkit-playsinline muted preload="auto" crossorigin="anonymous" style="position:absolute;width:2px;height:2px;opacity:0.001"></video>
-
-<a-scene mindar-image="imageTargetSrc: ./targets.mind; autoStart: false;" embedded>
-  <a-assets>
-    <video id="afvideo" src="video.mp4" loop playsinline webkit-playsinline crossorigin="anonymous"></video>
-  </a-assets>
-
-  <a-entity mindar-image-target="targetIndex: 0">
-    <a-plane id="plane" rotation="-90 0 0" position="0 0 0" material="shader: flat; src: #afvideo; side: double" visible="false"></a-plane>
-  </a-entity>
-
-  <a-entity camera></a-entity>
-</a-scene>
-
-<script>
-const log = m => document.getElementById('log').textContent = m;
-const scene = document.querySelector('a-scene');
-const plane = document.getElementById('plane');
-const afvideo = document.getElementById('afvideo');
-const startBtn = document.getElementById('startBtn');
-
-async function startAR(){
-  log('Requesting camera permission…');
-  try {
-    const s = await navigator.mediaDevices.getUserMedia({video:true});
-    s.getTracks().forEach(t=>t.stop());
-    log('Camera permission granted.');
-  } catch(e){
-    log('Camera permission denied or blocked — please allow in browser settings.');
-  }
-
-  if(!(location.protocol==='https:'||location.hostname==='localhost')){
-    log('⚠️ This page must be served via HTTPS or localhost for camera to work.');
-    return;
-  }
-
-  log('Waiting for scene to load…');
-  await new Promise(res=>{
-    if(scene.hasLoaded) return res();
-    scene.addEventListener('loaded',()=>res());
-  });
-
-  // small extra delay to ensure systems registered
-  await new Promise(r=>setTimeout(r,300));
-
-  const mindarSystem = scene.systems['mindar-image'];
-  if(!mindarSystem){
-    log('❌ MindAR system still undefined. Ensure mind-ar script loads before <a-scene>.');
-    return;
-  }
-
-  log('Starting MindAR… (allow camera if prompted)');
-  try{
-    await mindarSystem.start();
-    log('✅ MindAR started — point camera at target image.');
-
-    const anchor = document.querySelector('[mindar-image-target]');
-    anchor.addEventListener('targetFound', async()=>{
-      plane.setAttribute('visible','true');
-      try{await afvideo.play();}catch(e){}
-      log('Target found — video playing.');
-    });
-    anchor.addEventListener('targetLost',()=>{
-      plane.setAttribute('visible','false');
-      afvideo.pause();
-      afvideo.currentTime=0;
-      log('Target lost.');
-    });
-  }catch(e){
-    log('❌ MindAR start failed: '+(e.message||e));
-  }
-}
-
-startBtn.addEventListener('click', startAR);
-</script>
-</body>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  </head>
+  <body>
+    <a-scene mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
+      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+      <a-entity mindar-image-target="targetIndex: 0">
+        <a-plane color="blue" opaciy="0.5" position="0 0 0" height="0.552" width="1" rotation="0 0 0"></a-plane>
+      </a-entity>
+    </a-scene>
+  </body>
 </html>
