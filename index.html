@@ -1,187 +1,80 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>AR NFT — Video Texture Debug</title>
+<script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe-master.min.js"></script>
 
-  <script src="https://cdn.jsdelivr.net/gh/aframevr/aframe@1c2407b26c61958baa93967b5412487cd94b290b/dist/aframe-master.min.js"></script>
-  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+<script src='https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js'></script>
 
-  <style>
-    body { margin:0; font-family:system-ui,Roboto,Segoe UI; }
-    #ui { position:absolute; z-index:9999; left:12px; top:12px; background:rgba(0,0,0,0.6); color:#fff; padding:12px; border-radius:8px; max-width:360px; }
-    #log { margin-top:8px; font-size:0.85rem; color:#ffd; white-space:pre-wrap; max-height:160px; overflow:auto; }
-    #debugBtn { margin-top:8px; padding:8px 10px; border-radius:6px; border:none; cursor:pointer; }
-  </style>
-</head>
-<body>
-  <div id="ui">
-    <div id="status">Init...</div>
-    <button id="debugBtn">Debug: place plane in front of camera</button>
-    <div id="log"></div>
-  </div>
 
-  <!-- keep video in DOM and renderable (tiny + transparent) -->
-  <video id="ar-video"
-         src="./video.mp4"
-         preload="auto"
-         loop
-         muted
-         playsinline
-         webkit-playsinline
-         crossorigin="anonymous"
-         style="position:absolute;left:0;top:0;width:2px;height:2px;opacity:0.001;">
-  </video>
+<script>
+    window.onload = function() {
+        AFRAME.registerComponent('videohandler', {
+            init: function () {
+                var marker = this.el;
 
-  <a-scene vr-mode-ui="enabled:false" embedded renderer="logarithmicDepthBuffer:true"
-           arjs="trackingMethod:best; sourceType:webcam; debugUIEnabled:false;">
-    <a-nft id="my-nft" type="nft" url="https://raw.githack.com/AR-js-org/AR.js/master/aframe/examples/image-tracking/nft/trex/trex-image/trex" smooth="true">
-      <!-- rotation/position are common sources of "invisible" planes.
-           Try both rotation="-90 0 0" and "0 0 0" if you still can't see it. -->
-      <a-plane id="video-plane"
-               rotation="-90 0 0"
-               position="0 0 0"
-               width="1.6" height="0.9"
-               visible="false"
-               material="shader: flat; src: #ar-video; side: double;">
-      </a-plane>
-    </a-nft>
+                this.vid = document.querySelector("#vid");
 
-    <a-entity camera id="camera"></a-entity>
-  </a-scene>
+                marker.addEventListener('markerFound', function () {
+                    this.vid.play();
+                }.bind(this));
 
-  <script>
-  (function(){
-    const statusEl = id => document.getElementById('status').textContent = id;
-    const logEl = document.getElementById('log');
-    const debugBtn = document.getElementById('debugBtn');
+		marker.addEventListener('markerLost', function() {
+			this.vid.pause();
+			this.vid.currentTime = 0;
+		}.bind(this));
+            }
+        });
+    };
+</script>
 
-    function dbg(...args){
-      console.log('[AR-DBG]', ...args);
-      logEl.textContent = (new Date().toLocaleTimeString() + ' — ' + args.join(' ') + '\n') + logEl.textContent;
+<style>
+    .arjs-loader {
+        height: 100%;
+        width: 100%;
+        position: absolute;
+        top: 0;
+        left: 0;
+        background-color: rgba(0, 0, 0, 0.8);
+        z-index: 9999;
+        display: flex;
+        justify-content: center;
+        align-items: center;
     }
 
-    const video = document.getElementById('ar-video');
-    const plane = document.getElementById('video-plane');
-    const nft = document.getElementById('my-nft');
-    const camera = document.getElementById('camera');
-
-    // Ensure video is usable as a texture
-    video.crossOrigin = 'anonymous';
-    video.muted = true;
-    try { video.load(); } catch(e) { dbg('video.load() failed', e); }
-
-    // Component to ensure the underlying three texture is updated each frame
-    AFRAME.registerComponent('video-texture-updater', {
-      tick: function () {
-        const mesh = this.el.getObject3D('mesh');
-        if (!mesh) return;
-        const mat = mesh.material;
-        // support both Mesh and Array materials
-        if (Array.isArray(mat)) {
-          mat.forEach(m => { if (m && m.map && m.map.image === video) m.map.needsUpdate = true; });
-        } else {
-          if (mat && mat.map && mat.map.image === video) mat.map.needsUpdate = true;
-        }
-      }
-    });
-
-    // Attach the component to the plane so every frame we force-update the texture
-    plane.setAttribute('video-texture-updater', '');
-
-    // When metadata loads, size plane to match aspect ratio
-    video.addEventListener('loadedmetadata', () => {
-      dbg('video loadedmetadata', video.videoWidth, video.videoHeight);
-      if (video.videoWidth && video.videoHeight) {
-        const aspect = video.videoWidth / video.videoHeight;
-        const width = 1.6;
-        const height = width / aspect;
-        plane.setAttribute('width', width);
-        plane.setAttribute('height', height);
-        dbg('plane sized to', width, height, 'aspect', aspect.toFixed(2));
-      }
-    });
-
-    video.addEventListener('canplay', () => {
-      dbg('video canplay (a frame is ready)');
-    });
-
-    video.addEventListener('error', (ev) => {
-      dbg('video error', ev);
-      statusEl('Video load error — check console/network');
-    });
-
-    async function tryPlay() {
-      try {
-        const p = video.play();
-        if (p !== undefined) await p;
-        dbg('video.play() resolved - playing');
-        return true;
-      } catch (err) {
-        dbg('video.play() rejected:', err);
-        return false;
-      }
+    .arjs-loader div {
+        text-align: center;
+        font-size: 1.25em;
+        color: white;
     }
+</style>
 
-    // On marker found: show plane and ensure material is bound & texture updates are forced
-    nft.addEventListener('markerFound', async () => {
-      dbg('markerFound');
-      plane.setAttribute('visible', 'true');
+<body style='margin : 0px; overflow: hidden;'>
+    <div class="arjs-loader">
+        <div>Loading, please wait...</div>
+    </div>
+    <a-scene
+        vr-mode-ui="enabled: false;"
+        renderer='antialias: true; alpha: true; precision: medium;'
+        embedded arjs='trackingMethod: best; sourceType: webcam; debugUIEnabled: false;'>
 
-      // re-bind material to ensure the src points to the fresh video element
-      plane.setAttribute('material', 'shader: flat; src: #ar-video; side: double;');
+        <a-assets>
+            <video src="mov_bbb.mp4"
+                preload="auto" id="vid" response-type="arraybuffer" loop
+                crossorigin webkit-playsinline autoplay muted playsinline>
+            </video>
+        </a-assets>
 
-      // try to play
-      const ok = await tryPlay();
-      if (!ok) {
-        statusEl('Autoplay blocked — do a tap to start video');
-      } else {
-        statusEl('Playing on marker');
-      }
-
-      // As a safety, also try to ensure the three texture exists (debugging only)
-      setTimeout(() => {
-        const mesh = plane.getObject3D('mesh');
-        if (!mesh) dbg('Plane has no mesh yet (rendering may not be initialized)');
-        else dbg('Plane mesh present; material maps:', mesh.material.map ? 'map exists' : 'no map');
-      }, 500);
-    });
-
-    nft.addEventListener('markerLost', () => {
-      dbg('markerLost — hiding plane & pausing video');
-      plane.setAttribute('visible', 'false');
-      video.pause();
-      video.currentTime = 0;
-      statusEl('Marker lost');
-    });
-
-    // Debug: place plane directly in front of camera so you can confirm the texture shows
-    debugBtn.addEventListener('click', () => {
-      dbg('DEBUG: moving plane to camera forward location');
-      // copy plane to a new entity parented to camera so it sits visible at 1.5m ahead
-      const camEl = camera;
-      // create a temporary visible plane in front of the camera
-      const temp = document.createElement('a-plane');
-      temp.setAttribute('width', plane.getAttribute('width') || 1.6);
-      temp.setAttribute('height', plane.getAttribute('height') || 0.9);
-      temp.setAttribute('material', 'shader: flat; src: #ar-video; side: double;');
-      temp.setAttribute('position', '0 0 -1.5');
-      temp.setAttribute('rotation', '0 0 0');
-      temp.setAttribute('id', 'temp-debug-plane');
-      camEl.appendChild(temp);
-      // try play just in case
-      tryPlay();
-      // remove debug plane after 10s
-      setTimeout(() => {
-        if (temp && temp.parentNode) temp.parentNode.removeChild(temp);
-        dbg('DEBUG: removed temp plane');
-      }, 10000);
-    });
-
-    dbg('Initialization complete. Point camera at the NFT target and watch logs.');
-    statusEl('Ready — point camera at image');
-  })();
-  </script>
+        <a-nft
+            videohandler
+            type='nft' url='./pinball'
+            smooth="true" smoothCount="10" smoothTolerance="0.01" smoothThreshold="5"
+        >
+            <a-video
+                src="#vid"
+                position='50 150 -100'
+                rotation='90 0 180'
+                width='300'
+                height='175'
+                >
+            </a-video>
+        </a-nft>
+		<a-entity camera></a-entity>
+	</a-scene>
 </body>
-</html>
