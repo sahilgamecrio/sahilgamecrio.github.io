@@ -1,16 +1,99 @@
-
+<!doctype html>
 <html>
   <head>
+    <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    <style>
+      body { margin: 0; overflow: hidden; }
+      /* fullscreen canvas */
+      a-scene { width: 100vw; height: 100vh; }
+    </style>
   </head>
   <body>
-    <a-scene mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
+    <a-scene
+      vr-mode-ui="enabled: false"
+      device-orientation-permission-ui="enabled: false"
+      mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: true;"
+      renderer="antialias: true; colorManagement: true"
+    >
+      <a-assets>
+        <!-- Optional: use a video to overlay instead of a plane -->
+        <video id="overlayVideo" autoplay loop muted playsinline webkit-playsinline
+               src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"></video>
+      </a-assets>
+
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-      <a-entity mindar-image-target="targetIndex: 0">
-        <a-plane color="blue" opaciy="0.5" position="0 0 0" height="0.552" width="1" rotation="0 0 0"></a-plane>
+
+      <!-- target 0 -->
+      <a-entity mindar-image-target="targetIndex: 0" id="anchor0"
+                smooth-transform="smoothing: 0.15;">
+        <!-- Example: a flat video plane (use shader: flat to avoid lighting changes) -->
+        <a-plane
+          material="shader: flat; src: #overlayVideo; transparent: true;"
+          position="0 0 0"
+          rotation="0 0 0"
+          width="1"
+          height="0.552"
+          opacity="0.95"
+        ></a-plane>
+
+        <!-- if you prefer a colored plane instead of video, uncomment:
+        <a-plane
+          material="shader: flat; color: #1e90ff; opacity: 0.6"
+          position="0 0 0"
+          rotation="0 0 0"
+          width="1"
+          height="0.552"
+        ></a-plane>
+        -->
       </a-entity>
+
+      <!-- smoothing component: lerps pos & quaternion to reduce jitter -->
+      <script>
+        AFRAME.registerComponent('smooth-transform', {
+          schema: {
+            smoothing: { type: 'number', default: 0.12 } // 0 = no smoothing, 0.2 = gentle smoothing
+          },
+          init: function () {
+            this.prevPos = new THREE.Vector3();
+            this.prevQuat = new THREE.Quaternion();
+            // initialize from current transform
+            this.el.object3D.getWorldPosition(this.prevPos);
+            this.el.object3D.getWorldQuaternion(this.prevQuat);
+            // temporary vars
+            this._targetPos = new THREE.Vector3();
+            this._targetQuat = new THREE.Quaternion();
+            this._tempQuat = new THREE.Quaternion();
+          },
+          tick: function (time, timeDelta) {
+            const obj = this.el.object3D;
+            // get current world transform (the instantaneous tracking result)
+            obj.getWorldPosition(this._targetPos);
+            obj.getWorldQuaternion(this._targetQuat);
+
+            // interpolate position
+            this.prevPos.lerp(this._targetPos, 1 - Math.exp(-this.data.smoothing * (timeDelta / 16)));
+            // slerp quaternion for smooth rotation
+            this.prevQuat.slerp(this._targetQuat, 1 - Math.exp(-this.data.smoothing * (timeDelta / 16)));
+
+            // convert smoothed world transform back to object's local space relative to parent
+            if (obj.parent) {
+              // compute parent inverse to get local transform
+              const parentInv = new THREE.Matrix4().getInverse(obj.parent.matrixWorld);
+              const smoothedMatrix = new THREE.Matrix4().compose(this.prevPos, this.prevQuat, obj.scale);
+              smoothedMatrix.premultiply(parentInv);
+              obj.matrix.copy(smoothedMatrix);
+              obj.matrix.decompose(obj.position, obj.quaternion, obj.scale);
+            } else {
+              // no parent: just set world transforms directly
+              obj.position.copy(this.prevPos);
+              obj.quaternion.copy(this.prevQuat);
+            }
+          }
+        });
+      </script>
     </a-scene>
   </body>
 </html>
