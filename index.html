@@ -1,220 +1,101 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Sahil MindAR</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>MindAR Stable Start</title>
 
-  <script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.5/dist/mindar-image-aframe.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.5/dist/mindar-image-aframe.prod.js"></script>
 
-  <style>
-    body{margin:0;font-family:system-ui,Roboto;background:#111;color:#eee}
-    #panel{position:fixed;left:10px;top:10px;z-index:9999;background:rgba(0,0,0,0.7);padding:12px;border-radius:8px;max-width:420px}
-    #panel button{padding:8px 10px;border-radius:6px;border:none;cursor:pointer;margin-right:8px}
-    #status{margin-top:8px;color:#ffd}
-    #console{margin-top:8px;background:#000;padding:8px;border-radius:6px;max-height:280px;overflow:auto;font-family:monospace;font-size:13px;color:#9f9}
-    .err{color:#f88}
-    .ok{color:#8f8}
-  </style>
+<style>
+body{margin:0;background:#000;color:#fff;font-family:system-ui,Roboto}
+#ui{position:fixed;top:10px;left:10px;z-index:9999;background:rgba(0,0,0,0.6);padding:10px 12px;border-radius:8px;max-width:320px}
+button{padding:8px 10px;border:none;border-radius:6px;margin-top:6px;cursor:pointer}
+#log{margin-top:6px;font-size:0.85rem;color:#ffd;white-space:pre-wrap}
+</style>
 </head>
 <body>
-  <div id="panel">
-    <div><strong>MindAR Robust Start</strong></div>
-    <div style="margin-top:8px;">
-      <button id="startBtn">Start AR (tap once)</button>
-      <button id="checkPerm">Check camera permission</button>
-    </div>
-    <div id="status">Status: waiting for user tap</div>
-    <div id="console"></div>
-  </div>
+<div id="ui">
+  <div><strong>MindAR stable start</strong></div>
+  <button id="startBtn">Start AR</button>
+  <div id="log">Waiting…</div>
+</div>
 
-  <video id="video" src="video.mp4" preload="auto" loop playsinline webkit-playsinline muted crossorigin="anonymous"
-         style="position:absolute;left:0;top:0;width:2px;height:2px;opacity:0.001"></video>
+<video id="video" src="video.mp4" loop playsinline webkit-playsinline muted preload="auto" crossorigin="anonymous" style="position:absolute;width:2px;height:2px;opacity:0.001"></video>
 
-  <!-- MindAR A-Frame scene; autoStart false so we control when it begins -->
-  <a-scene mindar-image="imageTargetSrc: ./targets.mind; autoStart: false;" embedded>
-    <a-assets>
-      <video id="afvideo" src="video.mp4" loop playsinline webkit-playsinline crossorigin="anonymous"></video>
-    </a-assets>
+<a-scene mindar-image="imageTargetSrc: ./targets.mind; autoStart: false;" embedded>
+  <a-assets>
+    <video id="afvideo" src="video.mp4" loop playsinline webkit-playsinline crossorigin="anonymous"></video>
+  </a-assets>
 
-    <a-entity mindar-image-target="targetIndex: 0">
-      <a-plane id="plane" rotation="-90 0 0" material="shader: flat; src: #afvideo; side: double" visible="false"></a-plane>
-    </a-entity>
+  <a-entity mindar-image-target="targetIndex: 0">
+    <a-plane id="plane" rotation="-90 0 0" position="0 0 0" material="shader: flat; src: #afvideo; side: double" visible="false"></a-plane>
+  </a-entity>
 
-    <a-entity camera></a-entity>
-  </a-scene>
+  <a-entity camera></a-entity>
+</a-scene>
 
 <script>
-(function(){
-  const statusEl = s => document.getElementById('status').textContent = 'Status: ' + s;
-  const logBox = document.getElementById('console');
-  function log(...args){ console.log('[DBG]', ...args); logBox.innerText = (new Date().toLocaleTimeString() + ' — ' + args.join(' ')) + '\n' + logBox.innerText; }
-  function err(...args){ console.error(...args); logBox.innerText = (new Date().toLocaleTimeString() + ' — ERROR: ' + args.join(' ')) + '\n' + logBox.innerText; }
+const log = m => document.getElementById('log').textContent = m;
+const scene = document.querySelector('a-scene');
+const plane = document.getElementById('plane');
+const afvideo = document.getElementById('afvideo');
+const startBtn = document.getElementById('startBtn');
 
-  const startBtn = document.getElementById('startBtn');
-  const checkPermBtn = document.getElementById('checkPerm');
-  const scene = document.querySelector('a-scene');
-  const plane = document.getElementById('plane');
-  const afvideo = document.getElementById('afvideo');
-
-  // Helper: check secure context
-  function secureCheck() {
-    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-      err('INSECURE: page must be served via HTTPS or localhost for camera access.');
-      statusEl('Insecure context — use HTTPS or localhost');
-      return false;
-    }
-    return true;
+async function startAR(){
+  log('Requesting camera permission…');
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({video:true});
+    s.getTracks().forEach(t=>t.stop());
+    log('Camera permission granted.');
+  } catch(e){
+    log('Camera permission denied or blocked — please allow in browser settings.');
   }
 
-  // Permissions API check (best-effort)
-  async function checkCameraPermission() {
-    if (!navigator.permissions) {
-      log('Permissions API not available — will prompt on Start AR');
-      statusEl('Permissions API not available');
-      return;
-    }
-    try {
-      const p = await navigator.permissions.query({ name: 'camera' });
-      log('Permission state:', p.state);
-      statusEl('Camera permission: ' + p.state);
-      p.onchange = () => { log('Permission changed to', p.state); statusEl('Camera permission: ' + p.state); };
-    } catch(e) {
-      err('Permissions.query failed', e);
-      statusEl('Permission query failed — tap Start AR to prompt camera');
-    }
+  if(!(location.protocol==='https:'||location.hostname==='localhost')){
+    log('⚠️ This page must be served via HTTPS or localhost for camera to work.');
+    return;
   }
 
-  // Minimal getUserMedia test to trigger prompt and report real error
-  async function testGetUserMedia() {
-    try {
-      log('Requesting getUserMedia for camera test...');
-      const st = await navigator.mediaDevices.getUserMedia({ video: true });
-      log('getUserMedia succeeded; stopping tracks');
-      st.getTracks().forEach(t => t.stop());
-      statusEl('Camera access OK');
-      return { ok: true };
-    } catch (e) {
-      err('getUserMedia failed:', e.name || e.message || e);
-      statusEl('Camera access failed: ' + (e.name || e.message));
-      return { ok: false, error: e };
-    }
+  log('Waiting for scene to load…');
+  await new Promise(res=>{
+    if(scene.hasLoaded) return res();
+    scene.addEventListener('loaded',()=>res());
+  });
+
+  // small extra delay to ensure systems registered
+  await new Promise(r=>setTimeout(r,300));
+
+  const mindarSystem = scene.systems['mindar-image'];
+  if(!mindarSystem){
+    log('❌ MindAR system still undefined. Ensure mind-ar script loads before <a-scene>.');
+    return;
   }
 
-  // Wait for a-scene to be fully initialized (renderstart). Returns after scene.systems are populated.
-  function waitForSceneReady(timeout = 8000) {
-    return new Promise((resolve, reject) => {
-      if (scene.hasLoaded) {
-        // small delay to ensure systems initialized
-        setTimeout(()=> {
-          resolve();
-        }, 50);
-        return;
-      }
-      let settled = false;
-      const onRender = () => {
-        if (settled) return;
-        settled = true;
-        scene.removeEventListener('renderstart', onRender);
-        setTimeout(()=> resolve(), 50); // small delay
-      };
-      scene.addEventListener('renderstart', onRender);
-      // timeout fallback
-      setTimeout(()=> {
-        if (!settled) {
-          settled = true;
-          scene.removeEventListener('renderstart', onRender);
-          reject(new Error('Scene did not become ready within timeout'));
-        }
-      }, timeout);
+  log('Starting MindAR… (allow camera if prompted)');
+  try{
+    await mindarSystem.start();
+    log('✅ MindAR started — point camera at target image.');
+
+    const anchor = document.querySelector('[mindar-image-target]');
+    anchor.addEventListener('targetFound', async()=>{
+      plane.setAttribute('visible','true');
+      try{await afvideo.play();}catch(e){}
+      log('Target found — video playing.');
     });
+    anchor.addEventListener('targetLost',()=>{
+      plane.setAttribute('visible','false');
+      afvideo.pause();
+      afvideo.currentTime=0;
+      log('Target lost.');
+    });
+  }catch(e){
+    log('❌ MindAR start failed: '+(e.message||e));
   }
+}
 
-  // Robust start: wait for user gesture, ensure scene ready, then call MindAR start safely
-  async function robustStart() {
-    if (!secureCheck()) return;
-
-    statusEl('User tapped — testing camera permission (will prompt if needed)');
-    // try getUserMedia to prompt camera permission
-    const testResult = await testGetUserMedia();
-    if (!testResult.ok) {
-      // permission denied or blocked — inform user and still continue attempt to start MindAR (MindAR itself may prompt)
-      err('Camera test failed. If you previously denied permission, grant camera in site settings and retry.');
-      // do NOT return — continue to attempt to start MindAR, but inform user.
-    }
-
-    // Wait for A-Frame & MindAR system to be ready
-    statusEl('Waiting for A-Frame scene & MindAR system to initialize...');
-    try {
-      await waitForSceneReady(8000);
-      log('Scene ready (renderstart fired). systems keys: ' + Object.keys(scene.systems).join(', '));
-    } catch(e) {
-      err('Scene ready wait failed:', e.message || e);
-      statusEl('Scene not ready — retry page reload');
-      return;
-    }
-
-    // Check the mindar system presence
-    const mindarSystem = scene.systems && scene.systems['mindar-image'];
-    if (!mindarSystem) {
-      err("MindAR system not found. scene.systems keys: " + Object.keys(scene.systems).join(', '));
-      statusEl('MindAR system not found — ensure mind-ar script loaded before a-scene');
-      return;
-    }
-
-    // Try to start MindAR
-    statusEl('Starting MindAR — allow camera if prompted.');
-    try {
-      await mindarSystem.start();
-      log('MindAR started successfully.');
-      statusEl('MindAR started — point camera at target');
-
-      // wire target events
-      const anchor = document.querySelector('[mindar-image-target]');
-      anchor.addEventListener('targetFound', async () => {
-        log('targetFound — showing plane and playing video');
-        plane.setAttribute('visible','true');
-        try { await afvideo.play(); log('afvideo.play() ok'); } catch(e) { err('afvideo.play() failed', e); }
-      });
-      anchor.addEventListener('targetLost', () => {
-        log('targetLost — hiding plane and stopping video');
-        plane.setAttribute('visible','false');
-        try { afvideo.pause(); afvideo.currentTime = 0; } catch(e) {}
-      });
-    } catch (e) {
-      err('MindAR start failed:', e && (e.message || e.name || e.toString()));
-      statusEl('MindAR start failed — see console for details');
-      // Suggest fixes
-      const msg = (e && (e.message || '') + '').toLowerCase();
-      if (msg.includes('fetch') || msg.includes('404') || msg.includes('not found')) {
-        err('Suggestion: check that targets.mind exists at ./targets.mind and is reachable (Network tab).');
-      } else if (msg.includes('insecure') || msg.includes('secure')) {
-        err('Suggestion: serve page via HTTPS or use localhost.');
-      } else if (msg.includes('permission') || msg.includes('notallowed')) {
-        err('Suggestion: allow camera permission in the site settings and retry.');
-      } else {
-        err('Suggestion: re-generate targets.mind using MindAR Studio and re-upload next to index.html.');
-      }
-    }
-  }
-
-  startBtn.addEventListener('click', async () => {
-    log('Start button pressed by user.');
-    await robustStart();
-  });
-
-  checkPermBtn.addEventListener('click', async () => {
-    await checkCameraPermission();
-    await testGetUserMedia();
-  });
-
-  // initial logs
-  log('Ready. Click "Start AR" to prompt camera and start MindAR.');
-  if (!secureCheck()) {
-    log('Note: HTTPS / localhost required; current protocol=' + location.protocol);
-  }
-})();
+startBtn.addEventListener('click', startAR);
 </script>
 </body>
 </html>
