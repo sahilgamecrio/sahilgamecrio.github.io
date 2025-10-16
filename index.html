@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
-  <title>AR.js + A-Frame — Video on Marker</title>
+  <title>Sk marker</title>
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
@@ -26,116 +26,83 @@
 
   <button id="manual-play">Tap to start video</button>
 
-  <!-- A-Frame scene with AR.js -->
-  <a-scene embedded vr-mode-ui="enabled: false" renderer="antialias: true; logarithmicDepthBuffer: true;"
-           arjs="sourceType: webcam; debugUIEnabled: false;">
-    <!-- Use your .patt file here; for quick test you can use patt.hiro URL -->
-    <a-marker type="pattern" url="./mytarget.patt" id="marker">
-      <!-- Adjust width/height to match your video's aspect ratio (w/h = 16/9 => 1 / 0.5625 ) -->
-      <a-plane id="video-plane" position="0 0 0" rotation="-90 0 0" width="1" height="0.5625"
-               material="shader: flat; src: #ar-video; transparent: true;"></a-plane>
-    </a-marker>
+  <a-scene embedded vr-mode-ui="enabled: false"
+         renderer="antialias: true; logarithmicDepthBuffer: true;"
+         arjs="sourceType: webcam; debugUIEnabled: false; maxDetectionRate: 30;">
 
-    <a-entity camera></a-entity>
-  </a-scene>
+  <!-- Use a high-quality local .patt or the default hiro for testing -->
+  <a-marker type="pattern" url="./mytarget.patt" id="marker">
+    <a-plane id="video-plane" position="0 0 0" rotation="-90 0 0" width="1" height="0.5625"
+             material="shader: flat; src: #ar-video; transparent: true;"></a-plane>
+  </a-marker>
+  <a-entity camera></a-entity>
+</a-scene>
 
-  <script>
-  (function(){
+<script>
+  (function () {
     const video = document.getElementById('ar-video');
     const marker = document.getElementById('marker');
-    const manualBtn = document.getElementById('manual-play');
 
-    // Friendly autoplay attributes
+    // make sure video is ready for texture use
     video.muted = true;
     video.playsInline = true;
     video.setAttribute('playsinline','');
-    video.setAttribute('webkit-playsinline','');
+    video.load(); video.pause();
 
-    // Preload the video
-    video.load();
-    video.pause();
+    // small debounce to avoid rapid play/pause flicker
+    let foundTimer = null;
+    let lostTimer = null;
+    const FOUND_DELAY_MS = 120; // wait a little before starting
+    const LOST_DELAY_MS = 180;  // wait before pausing (prevents flicker)
 
-    // Helpers
-    const log = (...a) => console.log('[AR]', ...a);
-    const warn = (...a) => console.warn('[AR]', ...a);
-
-    // show manual play button if autoplay blocked
-    function showManualPlay(){
-      manualBtn.style.display = 'block';
+    function safePlay() {
+      video.play().catch(()=>{/* manual fallback shown elsewhere */});
     }
-    manualBtn.addEventListener('click', async () => {
-      try {
-        await video.play();
-        manualBtn.style.display = 'none';
-        log('Manual play started');
-      } catch(e){
-        warn('Manual play failed', e);
-      }
+    function safePause() {
+      try { video.pause(); } catch(e) {}
+    }
+
+    marker.addEventListener('markerFound', () => {
+      clearTimeout(lostTimer);
+      foundTimer = setTimeout(() => {
+        // double check object3D visibility
+        const vis = marker.object3D && marker.object3D.visible;
+        if (vis) safePlay();
+      }, FOUND_DELAY_MS);
     });
 
-    // Safety: wait until A-Frame scene loaded (to ensure marker element exists)
-    const scene = document.querySelector('a-scene');
-    scene.addEventListener('loaded', () => {
-      log('A-Frame scene loaded');
-
-      if (!marker){
-        warn('Marker element not found. Check id/url of <a-marker>.');
-        return;
-      }
-
-      // debug: check pattern and video availability
-      const pattURL = marker.getAttribute('url');
-      if (pattURL) fetch(pattURL, {method:'HEAD'}).then(r => {
-        if (!r.ok) console.error('Pattern HEAD failed', r.status, pattURL);
-        else log('Pattern reachable:', pattURL);
-      }).catch(e => console.warn('Pattern fetch error', e));
-
-      const srcEl = video.querySelector('source');
-      if (srcEl) fetch(srcEl.getAttribute('src'), {method:'HEAD'}).then(r=> {
-        if (!r.ok) console.error('Video HEAD failed', r.status, srcEl.getAttribute('src'));
-        else log('Video reachable:', srcEl.getAttribute('src'));
-      }).catch(e => console.warn('Video fetch error', e));
-
-      // Marker events: play/pause
-      marker.addEventListener('markerFound', () => {
-        log('markerFound');
-        // If video isn't allowed to autoplay, play() will reject
-        video.play().then(()=> log('video.play succeeded')).catch(err => {
-          warn('video.play rejected', err);
-          showManualPlay();
-        });
-      });
-
-      marker.addEventListener('markerLost', () => {
-        log('markerLost');
-        try { video.pause(); } catch(e) { warn('video.pause failed', e); }
-      });
-
-      // Resume if tab visibility changes
-      document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) {
-          // only play when marker visible
-          if (marker.object3D && marker.object3D.visible) {
-            video.play().catch(()=>{});
-          }
-        } else {
-          video.pause();
-        }
-      });
+    marker.addEventListener('markerLost', () => {
+      clearTimeout(foundTimer);
+      lostTimer = setTimeout(() => {
+        safePause();
+      }, LOST_DELAY_MS);
     });
 
-    // Quick camera permission probe (will prompt user)
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({video:true})
-        .then(s => { s.getTracks().forEach(t=>t.stop()); log('Camera permission OK'); })
-        .catch(err => {
-          console.error('Camera permission denied or not available', err);
-          // no further action here — user must allow camera
-        });
-    } else {
-      console.error('getUserMedia not supported in this browser');
-    }
+    // optional: smooth plane transforms (reduces jitter visually)
+    // Use small lerp smoothing of the plane position/rotation each tick
+    const plane = document.getElementById('video-plane');
+    let targetPos = new THREE.Vector3(), curPos = new THREE.Vector3();
+    let targetRot = new THREE.Euler(), curRot = new THREE.Euler();
+    const SMOOTH = 0.15; // increase for more smoothing (but increases latency)
+
+    AFRAME.registerComponent('smooth-follow', {
+      tick: function () {
+        if (!marker.object3D) return;
+        // get marker world position/rotation
+        marker.object3D.getWorldPosition(targetPos);
+        marker.object3D.getWorldQuaternion(new THREE.Quaternion()).toEuler(targetRot); // pseudo; convert quat to euler below if needed
+        // lerp position
+        curPos.lerp(targetPos, SMOOTH);
+        plane.object3D.position.copy(curPos);
+        // lerp rotation (optional: use slerp for quaternion)
+        // plane.object3D.rotation.copy(curRot.lerp ? curRot.lerp(targetRot, SMOOTH) : targetRot);
+      }
+    });
+    // attach smoothing to plane
+    plane.setAttribute('smooth-follow','');
+
   })();
-  </script>
+</script>
+
 </body>
 </html>
