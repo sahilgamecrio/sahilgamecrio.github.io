@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
-  <title>AR.js + A-Frame — Video on Marker (Defensive)</title>
+  <title>Sahil AR MARKER</title>
 
   <style>
     body { margin:0; background:#000; color:#fff; font-family:system-ui, Arial; }
@@ -226,7 +226,7 @@
     appendLog('User pressed Start AR');
     const ok = await askCameraPermission();
     if (!ok) {
-      warn('Camera permission not granted — cannot start AR.');
+      warn('sahil Camera permission not granted — cannot start AR.');
       startBtn.disabled = false;
       return;
     }
@@ -256,13 +256,13 @@
   testHiroBtn.addEventListener('click', async () => {
     // ask camera first if not allowed
     const ok = await askCameraPermission();
-    if (!ok) { warn('camera permission required'); return; }
+    if (!ok) { warn('sahil camera permission required'); return; }
     await init(true);
     startBtn.style.display = 'none';
   });
 
   // Provide quick console hint
-  appendLog('Ready. Click "Start AR (click)" to begin (must run on localhost or HTTPS).');
+  appendLog(' sahil Ready. Click "Start AR (click)" to begin (must run on localhost or HTTPS).');
 })();
 </script>
 </body>
