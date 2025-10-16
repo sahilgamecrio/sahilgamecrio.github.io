@@ -3,128 +3,194 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>AR — Precise Video Over Image (calibrate)</title>
+  <title>AR Video: Fix — play on NFT</title>
 
   <script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe-master.min.js"></script>
   <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
 
   <style>
-    body{margin:0; font-family:system-ui, Roboto; overflow:hidden;}
-    #panel{position:absolute; left:10px; top:10px; z-index:9999; background:rgba(0,0,0,0.6); color:#fff; padding:10px; border-radius:8px;}
-    #panel input{width:80px}
-    #panel button{margin-left:6px}
-    #msg{margin-top:8px; font-size:0.9rem; color:#ffd;}
+    body{margin:0; font-family:system-ui,Roboto; overflow:hidden;}
+    #ui{position:absolute;left:12px;top:12px;z-index:9999;background:rgba(0,0,0,0.6);color:#fff;padding:10px;border-radius:8px;max-width:360px;}
+    #log{margin-top:8px;font-size:0.85rem;color:#ffd;white-space:pre-wrap;max-height:220px;overflow:auto;}
+    .loader{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.85);color:#fff;z-index:9998;font-size:1.05rem;}
+    button{margin-top:6px;padding:8px 10px;border-radius:6px;border:none;cursor:pointer}
   </style>
 </head>
 <body>
-  <div id="panel">
-    Printed width (cm): <input id="printWidth" type="number" step="0.1" value="20"> 
-    <button id="applyBtn">Apply</button><br>
-    <button id="nudgeLeft">◀︎</button>
-    <button id="nudgeRight">▶︎</button>
-    <button id="nudgeUp">▲</button>
-    <button id="nudgeDown">▼</button>
-    <div id="msg">Set printed width and point camera at target.</div>
+  <div class="loader" id="loader">Loading — point camera at the target</div>
+
+  <div id="ui">
+    <div id="status">Init</div>
+    <button id="debugBtn">Debug: show plane in front of camera</button>
+    <div id="log"></div>
   </div>
 
-  <!-- video must be renderable (tiny & almost transparent) -->
-  <video id="vid" src="./mov_bbb.mp4" preload="auto" loop muted playsinline webkit-playsinline crossorigin="anonymous"
-         style="position:absolute; left:0; top:0; width:2px; height:2px; opacity:0.001;"></video>
+  <!-- Keep video renderable. DO NOT use display:none -->
+  <video id="vid"
+         src="./mov_bbb.mp4"
+         preload="auto"
+         loop
+         muted
+         playsinline
+         webkit-playsinline
+         crossorigin="anonymous"
+         style="position:absolute;left:0;top:0;width:2px;height:2px;opacity:0.001;">
+  </video>
 
-  <a-scene vr-mode-ui="enabled:false" embedded
+  <a-scene vr-mode-ui="enabled:false" embedded renderer="logarithmicDepthBuffer:true"
            arjs="trackingMethod:best; sourceType:webcam; debugUIEnabled:false;">
-    <a-nft id="marker" type="nft" url="./pinball" smooth="true" smoothCount="40" smoothTolerance="0.01" smoothThreshold="2">
-      <a-plane id="videoPlane" rotation="-90 0 0" position="0 0 0" material="shader: flat; src: #vid; side: double;" visible="false"></a-plane>
+    <a-nft id="pinball" type="nft" url="./pinball" smooth="true" smoothCount="30" smoothTolerance="0.01" smoothThreshold="3">
+      <a-plane id="video-plane"
+               rotation="-90 0 0"
+               position="0 0 0"
+               width="1.6"
+               height="0.9"
+               visible="false"
+               material="shader: flat; src: #vid; side: double; transparent: false;">
+      </a-plane>
     </a-nft>
-    <a-entity camera></a-entity>
+
+    <a-entity camera id="camera"></a-entity>
   </a-scene>
 
   <script>
   (function(){
-    const vid = document.getElementById('vid');
-    const plane = document.getElementById('videoPlane');
-    const marker = document.getElementById('marker');
-    const msg = document.getElementById('msg');
-    const printWidthInput = document.getElementById('printWidth');
-    const applyBtn = document.getElementById('applyBtn');
-    const nudges = {
-      left: document.getElementById('nudgeLeft'),
-      right: document.getElementById('nudgeRight'),
-      up: document.getElementById('nudgeUp'),
-      down: document.getElementById('nudgeDown')
-    };
+    const loader = document.getElementById('loader');
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
+    const debugBtn = document.getElementById('debugBtn');
 
-    // force video texture updates each frame
+    function status(s){ statusEl.textContent = s; console.log('[AR]', s); }
+    function dbg(...args){ const t = (new Date()).toLocaleTimeString() + ' — ' + args.join(' '); logEl.textContent = t + '\n' + logEl.textContent; console.log('[AR]', ...args); }
+
+    const video = document.getElementById('vid');
+    const marker = document.getElementById('pinball');
+    const plane = document.getElementById('video-plane');
+    const camera = document.getElementById('camera');
+
+    // ensure video settings
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    try { video.load(); } catch(e){ dbg('video.load() failed', e); }
+
+    // update video texture each frame
     AFRAME.registerComponent('video-texture-updater', {
       tick: function(){
         const mesh = this.el.getObject3D('mesh');
         if (!mesh) return;
-        const mat = mesh.material;
-        if (Array.isArray(mat)) {
-          mat.forEach(m => { if (m && m.map && m.map.image === vid) m.map.needsUpdate = true; });
-        } else {
-          if (mat && mat.map && mat.map.image === vid) mat.map.needsUpdate = true;
-        }
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach(m => {
+          if (m && m.map && m.map.image === video) {
+            m.map.needsUpdate = true;
+            // disable depth test to avoid z-fighting with marker plane
+            m.depthTest = false;
+          }
+        });
       }
     });
     plane.setAttribute('video-texture-updater','');
 
-    // auto-size plane when metadata arrives
-    vid.addEventListener('loadedmetadata', () => {
-      if (!vid.videoWidth || !vid.videoHeight) return;
-      plane.dataset.videoAspect = vid.videoWidth / vid.videoHeight;
-      msg.textContent = 'Video metadata loaded. Aspect: ' + plane.dataset.videoAspect.toFixed(3);
-      // keep plane hidden until marked found
+    // ensure plane render order so it draws over other geometry
+    plane.addEventListener('model-loaded', ()=> {
+      const mesh = plane.getObject3D('mesh');
+      if (mesh) mesh.renderOrder = 999;
     });
 
-    // play/pause on marker events
+    // On video metadata, auto-size the plane to video aspect ratio (optional)
+    video.addEventListener('loadedmetadata', () => {
+      dbg('video loadedmetadata', video.videoWidth, video.videoHeight);
+      if (video.videoWidth && video.videoHeight) {
+        const aspect = video.videoWidth / video.videoHeight;
+        const width = 0.20; // default physical width (meters). set to your printed width in meters for border-to-border match
+        const height = width / aspect;
+        plane.setAttribute('width', width);
+        plane.setAttribute('height', height);
+        dbg('plane sized:', width.toFixed(3)+'m x '+height.toFixed(3)+'m (aspect '+aspect.toFixed(3)+')');
+      }
+    });
+
+    video.addEventListener('canplay', () => {
+      dbg('video canplay (frame available)');
+      setTimeout(()=>{ loader.style.display='none'; }, 200);
+    });
+
+    // Try playing the video (and catch autoplay rejections)
+    async function tryPlay() {
+      try {
+        const p = video.play();
+        if (p !== undefined) await p;
+        dbg('video.play() resolved - playing');
+        return true;
+      } catch (err) {
+        dbg('video.play() rejected', err);
+        return false;
+      }
+    }
+
+    // Marker events
     marker.addEventListener('markerFound', async () => {
+      dbg('markerFound');
       plane.setAttribute('visible','true');
-      // rebind material just in case
-      plane.setAttribute('material','shader: flat; src: #vid; side: double;');
-      try { await vid.play(); msg.textContent = 'Playing'; } catch(e) { msg.textContent = 'Autoplay blocked — tap screen'; }
+
+      // Re-bind material to ensure correct src and disable depthTest on material
+      plane.setAttribute('material', 'shader: flat; src: #vid; side: double; transparent: false;');
+
+      // ensure plane draws above marker to avoid occlusion
+      const mesh = plane.getObject3D('mesh');
+      if (mesh) mesh.renderOrder = 999;
+
+      // small forward offset to avoid z-fighting if needed
+      plane.object3D.position.z = 0.001;
+
+      const ok = await tryPlay();
+      if (!ok) {
+        status('Autoplay blocked — tap the page to allow playback');
+        // allow user gesture to start playback
+        document.body.addEventListener('click', function onFirst() {
+          video.play().catch(e => dbg('user-start play failed', e));
+          document.body.removeEventListener('click', onFirst);
+        });
+      } else {
+        status('Playing on marker');
+      }
+
+      // create a temporary debug plane in front of camera to confirm texture works
+      const debug = document.createElement('a-plane');
+      debug.setAttribute('position','0 0 -1.0');
+      debug.setAttribute('rotation','0 0 0');
+      debug.setAttribute('width', plane.getAttribute('width') || 0.2);
+      debug.setAttribute('height', plane.getAttribute('height') || 0.112);
+      debug.setAttribute('material','shader: flat; src: #vid; side: double; transparent: false;');
+      debug.setAttribute('id','_debug_plane_for_test');
+      camera.appendChild(debug);
+      setTimeout(()=>{ const d = document.getElementById('_debug_plane_for_test'); if(d) d.parentNode.removeChild(d); }, 1200);
     });
+
     marker.addEventListener('markerLost', () => {
+      dbg('markerLost');
       plane.setAttribute('visible','false');
-      try { vid.pause(); vid.currentTime = 0; } catch(e) {}
-      msg.textContent = 'Marker lost';
+      try { video.pause(); video.currentTime = 0; } catch(e){ dbg('pause error', e); }
+      status('Marker lost');
     });
 
-    // helper: set plane size by printed width (cm -> meters)
-    function applyPrintedWidthCm(cm) {
-      const meters = parseFloat(cm) / 100;
-      const aspect = parseFloat(plane.dataset.videoAspect) || 16/9;
-      const height = meters / aspect;
-      plane.setAttribute('width', meters);
-      plane.setAttribute('height', height);
-      msg.textContent = `Plane set: ${meters.toFixed(3)} m × ${height.toFixed(3)} m (aspect ${aspect.toFixed(3)})`;
-    }
-
-    // apply button
-    applyBtn.addEventListener('click', () => {
-      const cm = parseFloat(printWidthInput.value);
-      if (!cm || cm <= 0) { msg.textContent = 'Enter a valid printed width in cm'; return; }
-      applyPrintedWidthCm(cm);
+    // Debug button to manually show plane in front of camera
+    debugBtn.addEventListener('click', () => {
+      dbg('Debug button pressed - placing test plane in front of camera for 5s');
+      const debug = document.createElement('a-plane');
+      debug.setAttribute('position','0 0 -1.0');
+      debug.setAttribute('rotation','0 0 0');
+      debug.setAttribute('width', plane.getAttribute('width') || 0.2);
+      debug.setAttribute('height', plane.getAttribute('height') || 0.112);
+      debug.setAttribute('material','shader: flat; src: #vid; side: double; transparent: false;');
+      debug.setAttribute('id','debug_direct_plane');
+      camera.appendChild(debug);
+      video.play().catch(()=>dbg('play prevented on debug'));
+      setTimeout(()=>{ const d=document.getElementById('debug_direct_plane'); if(d) d.parentNode.removeChild(d); dbg('removed debug plane'); }, 5000);
     });
 
-    // nudge controls: small local adjustments (in meters)
-    function nudge(dx, dy) {
-      const p = plane.getAttribute('position');
-      const nx = (p.x || 0) + (dx || 0);
-      const ny = (p.y || 0) + (dy || 0);
-      plane.setAttribute('position', `${nx} ${ny} ${p.z || 0}`);
-      msg.textContent = `Nudged to ${nx.toFixed(3)}, ${ny.toFixed(3)}`;
-    }
-    nudges.left.addEventListener('click', () => nudge(-0.005,0));
-    nudges.right.addEventListener('click', () => nudge(0.005,0));
-    nudges.up.addEventListener('click', () => nudge(0,0.005));
-    nudges.down.addEventListener('click', () => nudge(0,-0.005));
-
-    // allow user tap to start video if autoplay blocked
-    document.body.addEventListener('click', () => { vid.play().catch(()=>{}); });
-
-    // initial message
-    msg.textContent = 'Enter printed width (cm) and click Apply. Then point camera at target.';
+    // final status
+    status('Ready — point camera at the printed target image');
+    dbg('video.src=' + video.src);
   })();
   </script>
 </body>
