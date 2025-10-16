@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
-  <title>Sk marker</title>
+  <title>Test marker</title>
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
@@ -39,70 +39,75 @@
 </a-scene>
 
 <script>
-  (function () {
-    const video = document.getElementById('ar-video');
-    const marker = document.getElementById('marker');
+(async function(){
+  const log = (...a)=>console.log('[AR DEBUG]',...a);
+  const warn = (...a)=>console.warn('[AR DEBUG]',...a);
+  const err = (...a)=>console.error('[AR DEBUG]',...a);
 
-    // make sure video is ready for texture use
-    video.muted = true;
-    video.playsInline = true;
-    video.setAttribute('playsinline','');
-    video.load(); video.pause();
+  // Basic element checks
+  const scene = document.querySelector('a-scene');
+  if (!scene) return err('No <a-scene> found');
+  const marker = document.getElementById('marker');
+  const video = document.getElementById('ar-video');
 
-    // small debounce to avoid rapid play/pause flicker
-    let foundTimer = null;
-    let lostTimer = null;
-    const FOUND_DELAY_MS = 120; // wait a little before starting
-    const LOST_DELAY_MS = 180;  // wait before pausing (prevents flicker)
+  // Asset HEAD checks
+  async function headCheck(url,name){
+    if (!url) return warn('No URL for',name);
+    try {
+      const r = await fetch(url,{method:'HEAD'});
+      if (!r.ok) err(`${name} HEAD returned ${r.status}:`, url);
+      else log(`${name} reachable:`, url);
+    } catch(e){ err(`${name} fetch HEAD failed:`, url, e); }
+  }
 
-    function safePlay() {
-      video.play().catch(()=>{/* manual fallback shown elsewhere */});
+  // Wait scene load
+  scene.addEventListener('loaded', async ()=>{
+    log('A-Frame scene loaded');
+
+    // Check AR.js loaded
+    if (typeof AR === 'undefined' && typeof THREEx === 'undefined') {
+      warn('AR.js global not detected (but sometimes OK). Check Network if aframe-ar.js loaded.');
+    } else log('AR.js appears present');
+
+    // patt check
+    const pattUrl = marker ? marker.getAttribute('url') : null;
+    await headCheck(pattUrl,'marker pattern');
+
+    // video check
+    if (video) {
+      const s = video.querySelector('source');
+      await headCheck(s ? s.getAttribute('src') : null, 'video file');
+    } else warn('No video element (id=ar-video) found');
+
+    // Camera probe
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({video:true})
+      .then(stream => { stream.getTracks().forEach(t=>t.stop()); log('Camera permission OK'); })
+      .catch(e => err('Camera permission test failed:', e));
+    } else err('getUserMedia not supported');
+
+    // Marker event logging
+    if (marker) {
+      marker.addEventListener('markerFound', ()=>log('EVENT markerFound'));
+      marker.addEventListener('markerLost', ()=>log('EVENT markerLost'));
+    } else warn('marker element missing');
+  });
+
+  // If page is in iframe, show open-in-new-tab button (iframe can block camera)
+  try {
+    if (window.self !== window.top) {
+      const btn = document.createElement('button');
+      btn.textContent = 'Open full page';
+      Object.assign(btn.style,{position:'fixed',right:12,top:12,zIndex:99999,padding:'8px 12px'});
+      btn.onclick = ()=> window.open(window.location.href.split('?')[0]+'?fullscreen=1','_blank');
+      document.body.appendChild(btn);
+      warn('Page in iframe — camera may be blocked. Use "Open full page".');
     }
-    function safePause() {
-      try { video.pause(); } catch(e) {}
-    }
+  } catch(e){/* ignored */ }
 
-    marker.addEventListener('markerFound', () => {
-      clearTimeout(lostTimer);
-      foundTimer = setTimeout(() => {
-        // double check object3D visibility
-        const vis = marker.object3D && marker.object3D.visible;
-        if (vis) safePlay();
-      }, FOUND_DELAY_MS);
-    });
-
-    marker.addEventListener('markerLost', () => {
-      clearTimeout(foundTimer);
-      lostTimer = setTimeout(() => {
-        safePause();
-      }, LOST_DELAY_MS);
-    });
-
-    // optional: smooth plane transforms (reduces jitter visually)
-    // Use small lerp smoothing of the plane position/rotation each tick
-    const plane = document.getElementById('video-plane');
-    let targetPos = new THREE.Vector3(), curPos = new THREE.Vector3();
-    let targetRot = new THREE.Euler(), curRot = new THREE.Euler();
-    const SMOOTH = 0.15; // increase for more smoothing (but increases latency)
-
-    AFRAME.registerComponent('smooth-follow', {
-      tick: function () {
-        if (!marker.object3D) return;
-        // get marker world position/rotation
-        marker.object3D.getWorldPosition(targetPos);
-        marker.object3D.getWorldQuaternion(new THREE.Quaternion()).toEuler(targetRot); // pseudo; convert quat to euler below if needed
-        // lerp position
-        curPos.lerp(targetPos, SMOOTH);
-        plane.object3D.position.copy(curPos);
-        // lerp rotation (optional: use slerp for quaternion)
-        // plane.object3D.rotation.copy(curRot.lerp ? curRot.lerp(targetRot, SMOOTH) : targetRot);
-      }
-    });
-    // attach smoothing to plane
-    plane.setAttribute('smooth-follow','');
-
-  })();
+})();
 </script>
+
 
 </body>
 </html>
