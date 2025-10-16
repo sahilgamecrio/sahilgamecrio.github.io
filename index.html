@@ -1,80 +1,223 @@
-<script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe-master.min.js"></script>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AR NFT — Stable Video on Image</title>
 
-<script src='https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js'></script>
+  <script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe-master.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
 
-
-<script>
-    window.onload = function() {
-        AFRAME.registerComponent('videohandler', {
-            init: function () {
-                var marker = this.el;
-
-                this.vid = document.querySelector("#vid");
-
-                marker.addEventListener('markerFound', function () {
-                    this.vid.play();
-                }.bind(this));
-
-		marker.addEventListener('markerLost', function() {
-			this.vid.pause();
-			this.vid.currentTime = 0;
-		}.bind(this));
-            }
-        });
-    };
-</script>
-
-<style>
+  <style>
+    body { margin:0; overflow:hidden; font-family: system-ui, Roboto, "Segoe UI", sans-serif; }
     .arjs-loader {
-        height: 100%;
-        width: 100%;
-        position: absolute;
-        top: 0;
-        left: 0;
-        background-color: rgba(0, 0, 0, 0.8);
-        z-index: 9999;
-        display: flex;
-        justify-content: center;
-        align-items: center;
+      position: absolute; inset: 0; display:flex; align-items:center; justify-content:center;
+      background: rgba(0,0,0,0.8); z-index:9999; color:#fff; font-size:1.15rem;
     }
+    #ui { position:absolute; left:12px; top:12px; z-index:10000; color:#fff; }
+    #debugBtn { margin-top:8px; padding:8px 10px; border-radius:6px; border:none; cursor:pointer; }
+    #status { margin-top:6px; font-size:0.9rem; color:#ffd; max-width:360px; white-space:pre-wrap; }
+  </style>
+</head>
+<body>
+  <div class="arjs-loader" id="loader">Loading, please wait...</div>
 
-    .arjs-loader div {
-        text-align: center;
-        font-size: 1.25em;
-        color: white;
-    }
-</style>
+  <div id="ui">
+    <button id="debugBtn">Debug: show plane in front of camera</button>
+    <div id="status">Initializing…</div>
+  </div>
 
-<body style='margin : 0px; overflow: hidden;'>
-    <div class="arjs-loader">
-        <div>Loading, please wait...</div>
-    </div>
-    <a-scene
-        vr-mode-ui="enabled: false;"
-        renderer='antialias: true; alpha: true; precision: medium;'
-        embedded arjs='trackingMethod: best; sourceType: webcam; debugUIEnabled: false;'>
+  <!-- keep video element in DOM and renderable (tiny + nearly transparent) -->
+  <video id="vid"
+         src="mov_bbb.mp4"
+         preload="auto"
+         loop
+         muted
+         playsinline
+         webkit-playsinline
+         crossorigin="anonymous"
+         style="position:absolute;left:0;top:0;width:2px;height:2px;opacity:0.001;">
+  </video>
 
-        <a-assets>
-            <video src="mov_bbb.mp4"
-                preload="auto" id="vid" response-type="arraybuffer" loop
-                crossorigin webkit-playsinline autoplay muted playsinline>
-            </video>
-        </a-assets>
+  <a-scene
+    vr-mode-ui="enabled: false;"
+    renderer="antialias: true; alpha: true; precision: medium;"
+    embedded
+    arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false;"
+  >
+    <!-- NFT marker: local relative path because pinball folder sits next to index.html -->
+    <a-nft id="pinball-marker" type="nft" url="./pinball" smooth="true" smoothCount="10" smoothTolerance="0.01" smoothThreshold="5">
+      <!-- plane sits at marker origin. Use small values and orient to face camera: rotation -90 0 0 often matches printed images -->
+      <a-plane id="video-plane"
+               rotation="-90 0 0"
+               position="0 0 0"
+               width="1.6"
+               height="0.9"
+               visible="false"
+               material="shader: flat; src: #vid; side: double;">
+      </a-plane>
+    </a-nft>
 
-        <a-nft
-            videohandler
-            type='nft' url='./pinball'
-            smooth="true" smoothCount="10" smoothTolerance="0.01" smoothThreshold="5"
-        >
-            <a-video
-                src="#vid"
-                position='50 150 -100'
-                rotation='90 0 180'
-                width='300'
-                height='175'
-                >
-            </a-video>
-        </a-nft>
-		<a-entity camera></a-entity>
-	</a-scene>
+    <a-entity camera id="camera"></a-entity>
+  </a-scene>
+
+  <script>
+  (function () {
+    const loader = document.getElementById('loader');
+    const statusEl = document.getElementById('status');
+    const debugBtn = document.getElementById('debugBtn');
+    const video = document.getElementById('vid');
+    const markerEl = document.getElementById('pinball-marker');
+    const planeEl = document.getElementById('video-plane');
+
+    function status(s){ console.log('[AR]', s); statusEl.textContent = s; }
+
+    // Ensure video is ready for texture use
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    try { video.load(); } catch (e) { console.warn('video.load() failed', e); }
+
+    // Component to force three.js video texture updates each frame
+    AFRAME.registerComponent('video-texture-updater', {
+      tick: function () {
+        const mesh = this.el.getObject3D('mesh');
+        if (!mesh) return;
+        const mat = mesh.material;
+        if (Array.isArray(mat)) {
+          mat.forEach(m => { if (m && m.map && m.map.image === video) m.map.needsUpdate = true; });
+        } else {
+          if (mat && mat.map && mat.map.image === video) mat.map.needsUpdate = true;
+        }
+      }
+    });
+
+    // Component to smooth / low-pass the transform of the plane to reduce jitter
+    AFRAME.registerComponent('smooth-transform', {
+      schema: {
+        lerpPos: { type: 'number', default: 0.15 },   // 0..1 smaller = smoother (but laggier)
+        lerpQuat: { type: 'number', default: 0.12 }
+      },
+      init: function () {
+        this.targetObject = null; // object3D to follow (marker)
+        this.currentPos = new THREE.Vector3();
+        this.currentQuat = new THREE.Quaternion();
+      },
+      tick: function (time, dt) {
+        // on first tick, set targetObject to parent (which should be the marker's object3D)
+        if (!this.targetObject) {
+          // this.el is the plane; follow its parent (the marker)
+          if (this.el.parentEl && this.el.parentEl.object3D) {
+            this.targetObject = this.el.parentEl.object3D;
+            // initialize current to target to avoid jump
+            this.currentPos.copy(this.targetObject.position);
+            this.currentQuat.copy(this.targetObject.quaternion);
+          } else return;
+        }
+
+        // target transform in marker-local space: plane is child of marker, so we want to follow parent object3D
+        const tPos = this.targetObject.position;
+        const tQuat = this.targetObject.quaternion;
+
+        // lerp position
+        this.currentPos.lerp(tPos, this.data.lerpPos);
+        // slerp quaternion
+        this.currentQuat.slerp(tQuat, this.data.lerpQuat);
+
+        // apply result to the plane's object3D position/quaternion in world space relative to marker
+        // Because plane is already a child of marker, set plane.object3D.position to zero + offset but we want smoothed parent's transform.
+        // Simpler approach: set plane.object3D.parent.position/quat is marker; so we apply smoothing to plane's world transform by writing into plane.object3D.matrixWorld?
+        // Practical approach: update plane's position/quat relative to parent by computing desiredLocal from smoothed parent inverse.
+        // Compute smoothed parent matrix:
+        const parent = this.el.parentEl.object3D;
+        if (!parent) return;
+
+        // Build smoothed parent matrix
+        const smoothedMatrix = new THREE.Matrix4().compose(this.currentPos, this.currentQuat, new THREE.Vector3(1,1,1));
+
+        // Compute inverse of current parent world matrix (before applying smoothing) to obtain local from desired world
+        const parentWorldInv = new THREE.Matrix4().getInverse(parent.matrixWorld);
+        const desiredLocal = new THREE.Matrix4().multiplyMatrices(parentWorldInv, smoothedMatrix);
+
+        // Decompose desiredLocal into position/quaternion/scale
+        const pos = new THREE.Vector3();
+        const quat = new THREE.Quaternion();
+        const scale = new THREE.Vector3();
+        desiredLocal.decompose(pos, quat, scale);
+
+        // Apply to plane
+        this.el.object3D.position.copy(pos);
+        this.el.object3D.quaternion.copy(quat);
+        // keep local scale (do not override)
+      }
+    });
+
+    // Attach the components
+    planeEl.setAttribute('video-texture-updater', '');
+    planeEl.setAttribute('smooth-transform', 'lerpPos: 0.20; lerpQuat: 0.12');
+
+    // When video metadata is ready, size the plane automatically to video aspect
+    video.addEventListener('loadedmetadata', () => {
+      const w = video.videoWidth, h = video.videoHeight;
+      if (w && h) {
+        const aspect = w / h;
+        const width = 1.0; // physical width in AR units; tweak to match printed target
+        const height = width / aspect;
+        planeEl.setAttribute('width', width);
+        planeEl.setAttribute('height', height);
+        console.log('[AR] Plane sized to video aspect', aspect, width, height);
+      }
+    });
+
+    // When a frame is available hide loader (small delay)
+    video.addEventListener('canplay', () => {
+      setTimeout(() => {
+        if (loader) loader.style.display = 'none';
+      }, 250);
+    });
+
+    // Start/pause on marker events
+    markerEl.addEventListener('markerFound', async () => {
+      status('Marker found — showing video');
+      planeEl.setAttribute('visible', 'true');
+
+      // Rebind material (ensures src is current)
+      planeEl.setAttribute('material', 'shader: flat; src: #vid; side: double;');
+
+      // Try playing
+      try {
+        const p = video.play();
+        if (p && p.then) await p;
+        console.log('[AR] video.play() resolved');
+      } catch (err) {
+        console.warn('[AR] video.play() prevented', err);
+        status('Autoplay blocked — tap to interact with page to allow audio/playback');
+      }
+    });
+
+    markerEl.addEventListener('markerLost', () => {
+      status('Marker lost — hiding video');
+      planeEl.setAttribute('visible', 'false');
+      try { video.pause(); video.currentTime = 0; } catch(e) {}
+    });
+
+    // Debug button: place a test plane directly in front of camera so you can confirm texture
+    debugBtn.addEventListener('click', () => {
+      status('Debug plane added in front of camera for 8s');
+      const cam = document.getElementById('camera');
+      const dbg = document.createElement('a-plane');
+      dbg.setAttribute('position', '0 0 -1.2');
+      dbg.setAttribute('rotation', '0 0 0');
+      dbg.setAttribute('width', planeEl.getAttribute('width') || 1.0);
+      dbg.setAttribute('height', planeEl.getAttribute('height') || 0.56);
+      dbg.setAttribute('material', 'shader: flat; src: #vid; side: double;');
+      cam.appendChild(dbg);
+      // try play so user sees video
+      video.play().catch(()=>{});
+      setTimeout(()=>{ if (dbg && dbg.parentNode) dbg.parentNode.removeChild(dbg); status('Debug plane removed'); }, 8000);
+    });
+
+    status('Ready — point camera at printed target image');
+  })();
+  </script>
 </body>
+</html>
