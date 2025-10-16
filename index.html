@@ -1,257 +1,53 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
-  <title>Aframe Addedd</title>
-  <style>
-    body { margin:0; background:#000; color:#fff; font-family:system-ui, Arial; }
-    .toolbar { position:fixed; left:12px; top:12px; z-index:99999; display:flex; gap:8px; }
-    .btn { background:#0b84ff; color:#fff; border:none; padding:10px 12px; border-radius:8px; cursor:pointer; font-weight:600; }
-    .ghost { background:rgba(255,255,255,0.06); color:#fff; border:1px solid rgba(255,255,255,0.06); padding:8px 10px; border-radius:8px; }
-    .hint { position:fixed; left:12px; bottom:12px; z-index:99999; background:rgba(0,0,0,0.6); padding:8px 10px; border-radius:8px; }
-    #manual-play { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:999999; padding:14px 18px; font-size:16px; border-radius:10px; display:none; }
-    #log { position:fixed; right:12px; top:12px; width:340px; max-height:60vh; overflow:auto; z-index:99999; background:rgba(0,0,0,0.6); padding:8px; border-radius:8px; font-size:12px; }
-  </style>
-</head>
-<body>
-  <div class="toolbar">
-    <button id="start-btn" class="btn">Start AR</button>
-    <button id="open-full" class="ghost" style="display:none">Open full page</button>
-    <button id="use-my-marker" class="ghost">Use my marker (.patt)</button>
-    <button id="use-hiro" class="ghost">Use Hiro marker</button>
+<script src="https://cdn.jsdelivr.net/gh/aframevr/aframe@1c2407b26c61958baa93967b5412487cd94b290b/dist/aframe-master.min.js"></script>
+<script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+
+<style>
+  .arjs-loader {
+    height: 100%;
+    width: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background-color: rgba(0, 0, 0, 0.8);
+    z-index: 9999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .arjs-loader div {
+    text-align: center;
+    font-size: 1.25em;
+    color: white;
+  }
+</style>
+
+<body style="margin : 0px; overflow: hidden;">
+  <!-- minimal loader shown until image descriptors are loaded -->
+  <div class="arjs-loader">
+    <div>Loading, please wait...</div>
   </div>
-
-  <div id="log" aria-hidden="true"></div>
-  <div class="hint">Tip: print/display the Hiro marker. If camera doesn't start, run on localhost or HTTPS.</div>
-
-  <!-- Hidden video (muted for autoplay). Replace 'video.mp4' with your file. -->
-  <video id="ar-video" playsinline webkit-playsinline muted loop preload="auto" crossorigin="anonymous" style="display:none" poster="poster.jpg">
-    <source src="video.mp4" type="video/mp4">
-  </video>
-
-  <button id="manual-play">Tap to start video/audio</button>
-
-  <!-- Local A-Frame + AR.js usage: A-Frame is loaded from CDN, AR.js is local file aframe-ar.js -->
-  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-  <script src="./aframe-ar.js"></script>
-
-  <!-- Scene root will be injected by the script below -->
-  <div id="scene-root"></div>
-
-<script>
-/* Full single-file AR.js + A-Frame scene builder (local aframe-ar.js required)
-   Place this index.html + aframe-ar.js + video.mp4 + (optional) mytarget.patt in same folder.
-   Serve from http://localhost:PORT or HTTPS (GitHub Pages). */
-
-(function () {
-  const logEl = document.getElementById('log');
-  function appendLog(msg){
-    const p = document.createElement('div');
-    p.textContent = (new Date()).toLocaleTimeString() + ' — ' + msg;
-    logEl.prepend(p);
-  }
-  function log(...a){ console.log('[AR]', ...a); appendLog(a.join(' ')); }
-  function warn(...a){ console.warn('[AR]', ...a); appendLog('[WARN] ' + a.join(' ')); }
-  function error(...a){ console.error('[AR]', ...a); appendLog('[ERR] ' + a.join(' ')); }
-
-  const startBtn = document.getElementById('start-btn');
-  const openFullBtn = document.getElementById('open-full');
-  const manualPlayBtn = document.getElementById('manual-play');
-  const useMyMarkerBtn = document.getElementById('use-my-marker');
-  const useHiroBtn = document.getElementById('use-hiro');
-  const videoEl = document.getElementById('ar-video');
-
-  // ensure video attributes friendly to autoplay
-  videoEl.muted = true;
-  videoEl.setAttribute('playsinline','');
-  videoEl.setAttribute('webkit-playsinline','');
-
-  // helper: build scene HTML and insert into #scene-root
-  function buildScene(useHiro) {
-    const markerUrl = useHiro ? 'https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/data/patt.hiro' : './mytarget.patt';
-    const sceneHTML = `
-      <a-scene embedded vr-mode-ui="enabled: false" renderer="antialias: true; logarithmicDepthBuffer: true;"
-               arjs="sourceType: webcam; debugUIEnabled: false; maxDetectionRate: 30;">
-        <a-marker id="marker" type="pattern" url="${markerUrl}">
-          <a-plane id="video-plane" position="0 0 0" rotation="-90 0 0" width="1" height="0.5625"
-                   material="shader: flat; src: #ar-video; transparent: true;"></a-plane>
-          <a-box id="debug-box" position="0 0.25 0" depth="0.2" height="0.2" width="0.2" color="#FF5252" visible="false"></a-box>
-        </a-marker>
-        <a-entity camera></a-entity>
-      </a-scene>
-    `;
-    document.getElementById('scene-root').innerHTML = sceneHTML;
-    appendLog('Scene inserted (marker URL: ' + markerUrl + ')');
-    wireSceneHandlers();
-  }
-
-  // wire marker events and checks
-  function wireSceneHandlers() {
-    const scene = document.querySelector('a-scene');
-    if (!scene) { error('A-Frame scene not present'); return; }
-
-    scene.addEventListener('loaded', async () => {
-      log('A-Frame scene loaded (event)');
-      // sanity: check AR.js presence
-      if (!window.AR && !AFRAME.components['arjs']) {
-        warn('AR.js library not detected. If marker wont track, ensure aframe-ar.js is present locally (./aframe-ar.js).');
-      } else log('AR.js appears present');
-
-      const marker = document.getElementById('marker');
-      const debugBox = document.getElementById('debug-box');
-
-      if (!marker) { error('marker not found in DOM'); return; }
-
-      // HEAD checks for marker file and video file (helpful for 404s)
-      (async () => {
-        const patt = marker.getAttribute('url');
-        if (patt) {
-          try {
-            const r = await fetch(patt, { method:'HEAD' });
-            log('Pattern HEAD', patt, r.status);
-          } catch(e){ warn('Pattern HEAD failed', patt, e); }
-        }
-        const src = videoEl.querySelector('source')?.getAttribute('src');
-        if (src) {
-          try {
-            const r2 = await fetch(src, { method:'HEAD' });
-            log('Video HEAD', src, r2.status);
-          } catch(e){ warn('Video HEAD failed', src, e); }
-        }
-      })();
-
-      // debounce timers to avoid flicker
-      let foundTimer = null;
-      let lostTimer = null;
-      const FOUND_DELAY_MS = 120, LOST_DELAY_MS = 160;
-
-      marker.addEventListener('markerFound', () => {
-        log('EVENT markerFound');
-        if (debugBox) debugBox.setAttribute('visible','true');
-        clearTimeout(lostTimer);
-        foundTimer = setTimeout(() => {
-          // check object3D visibility safely
-          const vis = marker.object3D && typeof marker.object3D.visible !== 'undefined' ? marker.object3D.visible : true;
-          if (vis) {
-            videoEl.play().then(()=> log('video.play succeeded')).catch(e => {
-              warn('video.play rejected:', e);
-              manualPlayBtn.style.display = 'block';
-            });
-          }
-        }, FOUND_DELAY_MS);
-      });
-
-      marker.addEventListener('markerLost', () => {
-        log('EVENT markerLost');
-        if (debugBox) debugBox.setAttribute('visible','false');
-        clearTimeout(foundTimer);
-        lostTimer = setTimeout(()=> {
-          try { videoEl.pause(); log('video paused'); } catch(e){ warn('video.pause failed', e); }
-        }, LOST_DELAY_MS);
-      });
-
-      // visibilitychange handler
-      document.addEventListener('visibilitychange', () => {
-        log('visibilitychange hidden?', document.hidden);
-        if (!document.hidden && marker.object3D && marker.object3D.visible) {
-          videoEl.play().catch(()=>{});
-        } else {
-          try { videoEl.pause(); } catch(e){}
-        }
-      });
-
-      // smoothing (optional) — small visual lerp to reduce jitter
-      const plane = document.getElementById('video-plane');
-      if (plane) {
-        AFRAME.registerComponent('smooth-follow', {
-          init: function(){ this.curPos = new THREE.Vector3(); this.targetPos = new THREE.Vector3(); this.s = 0.18; },
-          tick: function() {
-            if (!marker.object3D) return;
-            marker.object3D.getWorldPosition(this.targetPos);
-            this.curPos.lerp(this.targetPos, this.s);
-            plane.object3D.position.copy(this.curPos);
-          }
-        });
-        plane.setAttribute('smooth-follow','');
-      }
-
-    }); // scene loaded end
-  }
-
-  // prompt camera permission (user gesture required)
-  async function askCameraPermission() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      error('getUserMedia not supported in this browser');
-      return false;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video:true });
-      stream.getTracks().forEach(t => t.stop());
-      log('Camera permission probe succeeded');
-      return true;
-    } catch(e) {
-      error('Camera permission probe failed:', e);
-      return false;
-    }
-  }
-
-  // detect iframe and show open-full button if so
-  try {
-    if (window.self !== window.top) {
-      openFullBtn.style.display = 'inline-block';
-      openFullBtn.onclick = ()=> window.open(window.location.href.split('?')[0]+'?fullscreen=1','_blank');
-      appendLog('Page is inside an iframe; use "Open full page" if camera blocked.');
-    }
-  } catch(e){ /* ignore cross-origin */ }
-
-  // start button flow
-  startBtn.addEventListener('click', async () => {
-    startBtn.disabled = true;
-    appendLog('Start AR pressed — requesting camera permission...');
-    const ok = await askCameraPermission();
-    if (!ok) {
-      warn('Camera permission required. Try refreshing or opening in a new tab (Open full page).');
-      startBtn.disabled = false;
-      return;
-    }
-    // default to Hiro marker on first start
-    buildScene(true);
-    startBtn.style.display = 'none';
-  });
-
-  // manual play fallback
-  manualPlayBtn.addEventListener('click', async () => {
-    try {
-      await videoEl.play();
-      manualPlayBtn.style.display = 'none';
-      log('Manual play success');
-    } catch(e) {
-      error('Manual play error', e);
-    }
-  });
-
-  // buttons to switch markers on-the-fly
-  useMyMarkerBtn.addEventListener('click', async () => {
-    appendLog('Switching to local mytarget.patt (make sure it exists).');
-    // ensure camera permission before building
-    const ok = await askCameraPermission();
-    if (!ok) { warn('camera permission needed'); return; }
-    buildScene(false);
-    startBtn.style.display = 'none';
-  });
-  useHiroBtn.addEventListener('click', async () => {
-    appendLog('Switching to Hiro marker (online patt.hiro).');
-    const ok = await askCameraPermission();
-    if (!ok) return;
-    buildScene(true);
-    startBtn.style.display = 'none';
-  });
-
-  // initial hint
-  appendLog('Ready. Click "Start AR". Serve from localhost or HTTPS. Place aframe-ar.js & video.mp4 beside this file.');
-
-})();
-</script>
+  <a-scene
+    vr-mode-ui="enabled: false;"
+    renderer="logarithmicDepthBuffer: true;"
+    embedded
+    arjs="trackingMethod: best; sourceType: webcam;debugUIEnabled: false;"
+  >
+    <a-nft
+      type="nft"
+      url="https://raw.githack.com/AR-js-org/AR.js/master/aframe/examples/image-tracking/nft/trex/trex-image/trex"
+      smooth="true"
+      smoothCount="10"
+      smoothTolerance=".01"
+      smoothThreshold="5"
+    >
+      <a-entity
+        gltf-model="https://raw.githack.com/AR-js-org/AR.js/master/aframe/examples/image-tracking/nft/trex/scene.gltf"
+        scale="5 5 5"
+        position="50 150 0"
+      >
+      </a-entity>
+    </a-nft>
+    <a-entity camera></a-entity>
+  </a-scene>
 </body>
-</html>
