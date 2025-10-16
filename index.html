@@ -3,195 +3,119 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>SK video</title>
+  <title>MindAR — Video over Image (calibrated)</title>
 
-  <script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe-master.min.js"></script>
-  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+  <!-- MindAR + A-Frame -->
+  <script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.5/dist/mindar-image-aframe.prod.js"></script>
 
   <style>
-    body{margin:0; font-family:system-ui,Roboto; overflow:hidden;}
-    #ui{position:absolute;left:12px;top:12px;z-index:9999;background:rgba(0,0,0,0.6);color:#fff;padding:10px;border-radius:8px;max-width:360px;}
-    #log{margin-top:8px;font-size:0.85rem;color:#ffd;white-space:pre-wrap;max-height:220px;overflow:auto;}
-    .loader{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.85);color:#fff;z-index:9998;font-size:1.05rem;}
-    button{margin-top:6px;padding:8px 10px;border-radius:6px;border:none;cursor:pointer}
+    body{margin:0;overflow:hidden;font-family:system-ui,Roboto}
+    #ui{position:fixed;left:10px;top:10px;z-index:9999;background:rgba(0,0,0,0.6);color:#fff;padding:10px;border-radius:8px}
+    #ui input{width:70px}
+    #status{margin-top:6px;color:#ffd}
+    button{margin-top:6px}
   </style>
 </head>
 <body>
-  <div class="loader" id="loader">Loading — point camera at the target</div>
-
   <div id="ui">
-    <div id="status">Init</div>
-    <button id="debugBtn">Debug: show plane in front of camera</button>
-    <div id="log"></div>
+    Printed width (cm): <input id="printWidth" type="number" value="20" step="0.1">
+    <button id="apply">Apply</button>
+    <div><button id="tap">Tap to start (if needed)</button></div>
+    <div id="status">Ready — point camera at target</div>
   </div>
 
-  <!-- Keep video renderable. DO NOT use display:none -->
-  <video id="vid"
-         src="./mov_bbb.mp4"
-         preload="auto"
-         loop
-         muted
-         playsinline
-         webkit-playsinline
-         crossorigin="anonymous"
-         style="position:absolute;left:0;top:0;width:2px;height:2px;opacity:0.001;">
-  </video>
+  <!-- Video kept renderable (tiny & transparent) -->
+  <video id="video" src="video.mp4" preload="auto" playsinline webkit-playsinline crossorigin="anonymous" loop muted style="position:absolute;left:0;top:0;width:2px;height:2px;opacity:0.001"></video>
 
-  <a-scene vr-mode-ui="enabled:false" embedded renderer="logarithmicDepthBuffer:true"
-           arjs="trackingMethod:best; sourceType:webcam; debugUIEnabled:false;">
-    <a-nft id="pinball" type="nft" url="./pinball" smooth="true" smoothCount="30" smoothTolerance="0.01" smoothThreshold="3">
-      <a-plane id="video-plane"
-               rotation="-90 0 0"
-               position="0 0 0"
-               width="1.6"
-               height="0.9"
-               visible="false"
-               material="shader: flat; src: #vid; side: double; transparent: false;">
-      </a-plane>
-    </a-nft>
+  <!-- MindAR A-Frame scene -->
+  <a-scene mindar-image="imageTargetSrc: ./targets.mind; autoStart: false;" embedded color-space="sRGB">
+    <a-assets>
+      <!-- ensure A-Frame knows about the video -->
+      <video id="af-video" src="video.mp4" loop crossorigin="anonymous" playsinline webkit-playsinline></video>
+    </a-assets>
 
-    <a-entity camera id="camera"></a-entity>
+    <!-- anchor 0 is the first target in targets.mind -->
+    <a-entity mindar-image-target="targetIndex: 0">
+      <!-- plane is centered on the target; width/height will be set by JS to match printed size -->
+      <a-plane id="video-plane" position="0 0 0" rotation="-90 0 0" material="shader: flat; src: #af-video; side: double" visible="false"></a-plane>
+    </a-entity>
+
+    <a-entity camera></a-entity>
   </a-scene>
 
   <script>
-  (function(){
-    const loader = document.getElementById('loader');
-    const statusEl = document.getElementById('status');
-    const logEl = document.getElementById('log');
-    const debugBtn = document.getElementById('debugBtn');
+    (function(){
+      const printInput = document.getElementById('printWidth');
+      const applyBtn = document.getElementById('apply');
+      const status = document.getElementById('status');
+      const tap = document.getElementById('tap');
+      const video = document.getElementById('af-video'); // A-Frame asset video
+      const plane = document.getElementById('video-plane');
+      const mindarComponent = document.querySelector('a-scene').components['mindar-image'];
 
-    function status(s){ statusEl.textContent = s; console.log('[AR]', s); }
-    function dbg(...args){ const t = (new Date()).toLocaleTimeString() + ' — ' + args.join(' '); logEl.textContent = t + '\n' + logEl.textContent; console.log('[AR]', ...args); }
+      // Autoplay friendliness: keep muted; provide tap fallback
+      document.getElementById('tap').addEventListener('click', ()=> {
+        video.play().catch(()=>{});
+        document.body.focus();
+      });
 
-    const video = document.getElementById('vid');
-    const marker = document.getElementById('pinball');
-    const plane = document.getElementById('video-plane');
-    const camera = document.getElementById('camera');
+      // Auto-size plane when metadata available
+      video.addEventListener('loadedmetadata', () => {
+        status.textContent = 'Video metadata loaded. Click Apply after setting printed width (cm).';
+      });
 
-    // ensure video settings
-    video.crossOrigin = 'anonymous';
-    video.muted = true;
-    try { video.load(); } catch(e){ dbg('video.load() failed', e); }
-
-    // update video texture each frame
-    AFRAME.registerComponent('video-texture-updater', {
-      tick: function(){
-        const mesh = this.el.getObject3D('mesh');
-        if (!mesh) return;
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        mats.forEach(m => {
-          if (m && m.map && m.map.image === video) {
-            m.map.needsUpdate = true;
-            // disable depth test to avoid z-fighting with marker plane
-            m.depthTest = false;
-          }
-        });
-      }
-    });
-    plane.setAttribute('video-texture-updater','');
-
-    // ensure plane render order so it draws over other geometry
-    plane.addEventListener('model-loaded', ()=> {
-      const mesh = plane.getObject3D('mesh');
-      if (mesh) mesh.renderOrder = 999;
-    });
-
-    // On video metadata, auto-size the plane to video aspect ratio (optional)
-    video.addEventListener('loadedmetadata', () => {
-      dbg('video loadedmetadata', video.videoWidth, video.videoHeight);
-      if (video.videoWidth && video.videoHeight) {
-        const aspect = video.videoWidth / video.videoHeight;
-        const width = 0.20; // default physical width (meters). set to your printed width in meters for border-to-border match
-        const height = width / aspect;
-        plane.setAttribute('width', width);
+      // Apply printed width (cm -> meters). Use video aspect ratio to set height.
+      function applyPrintedWidth(cm) {
+        const meters = Number(cm) / 100;
+        const aspect = (video.videoWidth && video.videoHeight) ? (video.videoWidth / video.videoHeight) : (16/9);
+        const height = meters / aspect;
+        plane.setAttribute('width', meters);
         plane.setAttribute('height', height);
-        dbg('plane sized:', width.toFixed(3)+'m x '+height.toFixed(3)+'m (aspect '+aspect.toFixed(3)+')');
-      }
-    });
-
-    video.addEventListener('canplay', () => {
-      dbg('video canplay (frame available)');
-      setTimeout(()=>{ loader.style.display='none'; }, 200);
-    });
-
-    // Try playing the video (and catch autoplay rejections)
-    async function tryPlay() {
-      try {
-        const p = video.play();
-        if (p !== undefined) await p;
-        dbg('video.play() resolved - playing');
-        return true;
-      } catch (err) {
-        dbg('video.play() rejected', err);
-        return false;
-      }
-    }
-
-    // Marker events
-    marker.addEventListener('markerFound', async () => {
-      dbg('markerFound');
-      plane.setAttribute('visible','true');
-
-      // Re-bind material to ensure correct src and disable depthTest on material
-      plane.setAttribute('material', 'shader: flat; src: #vid; side: double; transparent: false;');
-
-      // ensure plane draws above marker to avoid occlusion
-      const mesh = plane.getObject3D('mesh');
-      if (mesh) mesh.renderOrder = 999;
-
-      // small forward offset to avoid z-fighting if needed
-      plane.object3D.position.z = 0.001;
-
-      const ok = await tryPlay();
-      if (!ok) {
-        status('Autoplay blocked — tap the page to allow playback');
-        // allow user gesture to start playback
-        document.body.addEventListener('click', function onFirst() {
-          video.play().catch(e => dbg('user-start play failed', e));
-          document.body.removeEventListener('click', onFirst);
-        });
-      } else {
-        status('Playing on marker');
+        status.textContent = `Plane set to ${meters.toFixed(3)} m × ${height.toFixed(3)} m`;
       }
 
-      // create a temporary debug plane in front of camera to confirm texture works
-      const debug = document.createElement('a-plane');
-      debug.setAttribute('position','0 0 -1.0');
-      debug.setAttribute('rotation','0 0 0');
-      debug.setAttribute('width', plane.getAttribute('width') || 0.2);
-      debug.setAttribute('height', plane.getAttribute('height') || 0.112);
-      debug.setAttribute('material','shader: flat; src: #vid; side: double; transparent: false;');
-      debug.setAttribute('id','_debug_plane_for_test');
-      camera.appendChild(debug);
-      setTimeout(()=>{ const d = document.getElementById('_debug_plane_for_test'); if(d) d.parentNode.removeChild(d); }, 1200);
-    });
+      applyBtn.addEventListener('click', ()=> {
+        const cm = parseFloat(printInput.value);
+        if (!cm || cm <= 0) { status.textContent = 'Enter valid printed width (cm)'; return; }
+        applyPrintedWidth(cm);
+      });
 
-    marker.addEventListener('markerLost', () => {
-      dbg('markerLost');
-      plane.setAttribute('visible','false');
-      try { video.pause(); video.currentTime = 0; } catch(e){ dbg('pause error', e); }
-      status('Marker lost');
-    });
+      // Start MindAR when user taps permission dialogs (autoStart false -> we start manually)
+      const scene = document.querySelector('a-scene');
+      scene.addEventListener('renderstart', ()=> status.textContent='Camera started, point at target');
 
-    // Debug button to manually show plane in front of camera
-    debugBtn.addEventListener('click', () => {
-      dbg('Debug button pressed - placing test plane in front of camera for 5s');
-      const debug = document.createElement('a-plane');
-      debug.setAttribute('position','0 0 -1.0');
-      debug.setAttribute('rotation','0 0 0');
-      debug.setAttribute('width', plane.getAttribute('width') || 0.2);
-      debug.setAttribute('height', plane.getAttribute('height') || 0.112);
-      debug.setAttribute('material','shader: flat; src: #vid; side: double; transparent: false;');
-      debug.setAttribute('id','debug_direct_plane');
-      camera.appendChild(debug);
-      video.play().catch(()=>dbg('play prevented on debug'));
-      setTimeout(()=>{ const d=document.getElementById('debug_direct_plane'); if(d) d.parentNode.removeChild(d); dbg('removed debug plane'); }, 5000);
-    });
+      // Start MindAR on first user gesture or immediately if allowed
+      function startMindAR() {
+        if (scene.systems['mindar-image'].isStarted) return;
+        scene.systems['mindar-image'].start().then(()=> {
+          status.textContent = 'MindAR started — looking for target';
+        }).catch(e => { console.error(e); status.textContent = 'MindAR start failed: ' + e; });
+      }
 
-    // final status
-    status('Ready — point camera at the printed target image');
-    dbg('video.src=' + video.src);
-  })();
+      // Start on a user tap (helps with autoplay/policy)
+      document.body.addEventListener('click', startMindAR, { once: true });
+
+      // Play/pause video on target found/lost
+      const anchor = document.querySelector('[mindar-image-target]');
+      anchor.addEventListener('targetFound', async () => {
+        plane.setAttribute('visible','true');
+        try { await video.play(); } catch(e) { console.warn('autoplay blocked', e); }
+        status.textContent = 'Target found — playing';
+      });
+      anchor.addEventListener('targetLost', () => {
+        plane.setAttribute('visible','false');
+        try { video.pause(); video.currentTime = 0; } catch(e) {}
+        status.textContent = 'Target lost';
+      });
+
+      // helpful: start MindAR automatically if user previously tapped
+      // and auto-size plane if user set printed width before metadata loaded
+      video.addEventListener('canplay', ()=> {
+        const cm = parseFloat(printInput.value);
+        if (cm > 0) applyPrintedWidth(cm);
+      });
+    })();
   </script>
 </body>
 </html>
