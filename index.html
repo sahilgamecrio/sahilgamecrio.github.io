@@ -3,33 +3,66 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MindAR A-Frame — Start Button + Debug</title>
+
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
     <style>
-      body { margin: 0; overflow: hidden; }
-      /* fullscreen canvas */
-      a-scene { width: 100vw; height: 100vh; }
+      html,body { height:100%; margin:0; }
+      a-scene { width:100vw; height:100vh; }
+      #startBtn {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%,-50%);
+        z-index: 20;
+        padding: 14px 20px;
+        font-size: 18px;
+        border-radius: 10px;
+        border: none;
+        background: #0b84ff;
+        color: white;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+      }
+      #message {
+        position: absolute;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 20;
+        background: rgba(0,0,0,0.6);
+        color: #fff;
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-size: 14px;
+        display: none;
+      }
+      /* hide A-Frame overlay while camera not started to avoid showing blue background */
+      .hiddenScene { visibility: hidden; }
     </style>
   </head>
+
   <body>
-    <a-scene
+    <button id="startBtn">Start AR</button>
+    <div id="message"></div>
+
+    <a-scene id="scene"
+      class="hiddenScene"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
-      mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: true;"
+      mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: false;"
       renderer="antialias: true; colorManagement: true"
+      embedded
     >
       <a-assets>
-        <!-- Optional: use a video to overlay instead of a plane -->
         <video id="overlayVideo" autoplay loop muted playsinline webkit-playsinline
                src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"></video>
       </a-assets>
 
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- target 0 -->
-      <a-entity mindar-image-target="targetIndex: 0" id="anchor0"
-                smooth-transform="smoothing: 0.15;">
-        <!-- Example: a flat video plane (use shader: flat to avoid lighting changes) -->
+      <a-entity mindar-image-target="targetIndex: 0" id="anchor0" smooth-transform="smoothing: 0.15">
         <a-plane
           material="shader: flat; src: #overlayVideo; transparent: true;"
           position="0 0 0"
@@ -38,56 +71,38 @@
           height="0.552"
           opacity="0.95"
         ></a-plane>
-
-        <!-- if you prefer a colored plane instead of video, uncomment:
-        <a-plane
-          material="shader: flat; color: #1e90ff; opacity: 0.6"
-          position="0 0 0"
-          rotation="0 0 0"
-          width="1"
-          height="0.552"
-        ></a-plane>
-        -->
       </a-entity>
 
-      <!-- smoothing component: lerps pos & quaternion to reduce jitter -->
+      <!-- smoothing component (same as before) -->
       <script>
         AFRAME.registerComponent('smooth-transform', {
-          schema: {
-            smoothing: { type: 'number', default: 0.12 } // 0 = no smoothing, 0.2 = gentle smoothing
-          },
+          schema: { smoothing: { type: 'number', default: 0.12 } },
           init: function () {
             this.prevPos = new THREE.Vector3();
             this.prevQuat = new THREE.Quaternion();
-            // initialize from current transform
             this.el.object3D.getWorldPosition(this.prevPos);
             this.el.object3D.getWorldQuaternion(this.prevQuat);
-            // temporary vars
             this._targetPos = new THREE.Vector3();
             this._targetQuat = new THREE.Quaternion();
-            this._tempQuat = new THREE.Quaternion();
           },
           tick: function (time, timeDelta) {
             const obj = this.el.object3D;
-            // get current world transform (the instantaneous tracking result)
             obj.getWorldPosition(this._targetPos);
             obj.getWorldQuaternion(this._targetQuat);
 
-            // interpolate position
-            this.prevPos.lerp(this._targetPos, 1 - Math.exp(-this.data.smoothing * (timeDelta / 16)));
-            // slerp quaternion for smooth rotation
-            this.prevQuat.slerp(this._targetQuat, 1 - Math.exp(-this.data.smoothing * (timeDelta / 16)));
+            // damping factor scaled by frame time to be framerate-agnostic
+            const alpha = 1 - Math.exp(-this.data.smoothing * (timeDelta / 16));
 
-            // convert smoothed world transform back to object's local space relative to parent
+            this.prevPos.lerp(this._targetPos, alpha);
+            this.prevQuat.slerp(this._targetQuat, alpha);
+
             if (obj.parent) {
-              // compute parent inverse to get local transform
-              const parentInv = new THREE.Matrix4().getInverse(obj.parent.matrixWorld);
+              const parentInv = new THREE.Matrix4().copy(obj.parent.matrixWorld).invert();
               const smoothedMatrix = new THREE.Matrix4().compose(this.prevPos, this.prevQuat, obj.scale);
               smoothedMatrix.premultiply(parentInv);
               obj.matrix.copy(smoothedMatrix);
               obj.matrix.decompose(obj.position, obj.quaternion, obj.scale);
             } else {
-              // no parent: just set world transforms directly
               obj.position.copy(this.prevPos);
               obj.quaternion.copy(this.prevQuat);
             }
@@ -95,5 +110,70 @@
         });
       </script>
     </a-scene>
+
+    <script>
+      const startBtn = document.getElementById('startBtn');
+      const message = document.getElementById('message');
+      const sceneEl = document.getElementById('scene');
+
+      function showMessage(text, timeout=4000) {
+        message.style.display = 'block';
+        message.innerText = text;
+        if (timeout) setTimeout(()=> { message.style.display = 'none'; }, timeout);
+      }
+
+      async function startAR() {
+        startBtn.disabled = true;
+        showMessage('Requesting camera permission...');
+
+        // Some browsers require getUserMedia first to trigger permission prompt
+        try {
+          // request camera permission (no stream kept)
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          // immediately stop tracks — MindAR will open its own stream
+          stream.getTracks().forEach(t => t.stop());
+        } catch (err) {
+          console.error('Camera permission denied or not available:', err);
+          showMessage('Camera permission denied or unavailable. Check browser settings.');
+          startBtn.disabled = false;
+          return;
+        }
+
+        // show the A-Frame scene now (hide blue background problem)
+        sceneEl.classList.remove('hiddenScene');
+
+        try {
+          // start MindAR system
+          const mindarSystem = sceneEl.systems['mindar-image'];
+          if (!mindarSystem) {
+            console.error('MindAR system not found on scene:', sceneEl);
+            showMessage('MindAR system missing. Check console.');
+            return;
+          }
+          await mindarSystem.start(); // start camera & tracking
+          // optionally play any video overlays that need to autoplay
+          const v = document.getElementById('overlayVideo');
+          if (v && v.paused) v.play().catch(e => console.warn('video play prevented', e));
+          showMessage('AR started — point camera at the target image (card).', 5000);
+
+          // hide start button after successful start
+          startBtn.style.display = 'none';
+
+          // add event listeners for debugging
+          sceneEl.addEventListener('targetFound', (e) => {
+            console.log('targetFound', e);
+          });
+          sceneEl.addEventListener('targetLost', (e) => {
+            console.log('targetLost', e);
+          });
+        } catch (err) {
+          console.error('Failed to start MindAR:', err);
+          showMessage('Failed to start AR — check console for details.');
+          startBtn.disabled = false;
+        }
+      }
+
+      startBtn.addEventListener('click', startAR);
+    </script>
   </body>
 </html>
